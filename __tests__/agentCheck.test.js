@@ -1,23 +1,23 @@
-const { checkAgents } = require('../runtime/agentCheck');
+const { checkAgents, AGENT_BINARIES } = require('../runtime/agentCheck');
 
-// Note: These tests require the actual CLI tools to be on PATH
-// They test the lookup functionality against real system state
+// These tests don't assert what's installed on the host — they only
+// validate the contract: checkAgents() resolves to a stable shape with
+// boolean values for every advertised binary. CI machines without the
+// CLIs still pass.
 
 describe('checkAgents', () => {
   test('returns an object with boolean values for each agent', async () => {
     const result = await checkAgents();
-    expect(result).toHaveProperty('claude');
-    expect(result).toHaveProperty('hermes');
-    expect(result).toHaveProperty('openclaw');
-    expect(typeof result.claude).toBe('boolean');
-    expect(typeof result.hermes).toBe('boolean');
-    expect(typeof result.openclaw).toBe('boolean');
+    for (const name of AGENT_BINARIES) {
+      expect(result).toHaveProperty(name);
+      expect(typeof result[name]).toBe('boolean');
+    }
   });
 
-  test('claude is typically available on developer machines', async () => {
-    // This test may fail on CI or machines without Claude CLI
-    const result = await checkAgents();
-    // Just verify it returns a boolean, don't assert true/false
-    expect(typeof result.claude).toBe('boolean');
+  test('resolves within the lookup timeout budget', async () => {
+    const start = Date.now();
+    await checkAgents();
+    // 3s per binary, run in parallel — should be well under 5s even on slow CI
+    expect(Date.now() - start).toBeLessThan(8000);
   });
 });

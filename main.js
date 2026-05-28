@@ -9,6 +9,7 @@ const { init: initAgents, ensureClaudeRuntime, cleanup: cleanupAgents, getSilent
 const { register: registerIPC, setTrayCallbacks } = require('./runtime/ipc');
 const { createTray, runAgentCheckOnStartup, updateTrayMenu } = require('./runtime/tray');
 const updater = require('./runtime/updater');
+const { safeSend, isWinAlive } = require('./runtime/safeSend');
 
 const isFirstLaunch = !store.get('hasLaunched', false);
 if (isFirstLaunch) store.set('hasLaunched', true);
@@ -24,7 +25,7 @@ function startCursorTracking() {
   const TRACK_RADIUS = 800;
   cursorTimer = setInterval(() => {
     const rw = getRobotWindow();
-    if (!rw || rw.isDestroyed() || !rw.isVisible()) return;
+    if (!isWinAlive(rw) || !rw.isVisible()) return;
     let pt; try { pt = screen.getCursorScreenPoint(); } catch (_) { return; }
     if (pt.x === lastCursor.x && pt.y === lastCursor.y) return;
     lastCursor = pt;
@@ -38,7 +39,7 @@ function startCursorTracking() {
     const cx = 67, cy = 80;
     if (Math.abs(ix - cx) > TRACK_RADIUS || Math.abs(iy - cy) > TRACK_RADIUS) return;
     lastSent = { x: ix, y: iy };
-    rw.webContents.send('cursor-point', { x: ix, y: iy });
+    safeSend(rw, 'cursor-point', { x: ix, y: iy });
   }, 80);
 }
 
@@ -103,9 +104,55 @@ function openOnboarding() {
   onbWin.on('closed', () => { global.__onboardingWindow = null; });
 }
 
-process.on('uncaughtException', (err) => {
-  console.error('[uncaughtException]', err);
+// Crash handlers. We log everything; for fatal errors we surface a dialog
+// so the user knows why the app is misbehaving, then quit gracefully so
+// the OS doesn't show its own "not responding" prompt.
+//
+// We deliberately do NOT swallow exceptions silently — that left zombie
+// IPC channels and inconsistent UI state on prior crashes.
+let _crashing = false;
+function _handleFatal(label, err) {
+  console.error(`[${label}]`, err);
+  if (_crashing) return;
+  _crashing = true;
+  try {
+    const { dialog } = require('electron');
+    dialog.showErrorBox(
+      '灵珑遇到错误',
+      `${label}: ${(err && err.stack) || err}`
+    );
+  } catch (_) {}
+  // Give ourselves a moment to flush state to disk before quitting.
+  try { cleanupAgents(); } catch (_) {}
+  setTimeout(() => app.exit(1), 200);
+}
+process.on('uncaughtException', (err) => _handleFatal('uncaughtException', err));
+process.on('unhandledRejection', (reason) => {
+  // Promise rejections aren't always fatal — log but don't kill the app
+  // unless they look like programmer errors.
+  console.error('[unhandledRejection]', reason);
 });
+
+// Single instance lock — running two copies of the app would create two
+// robot windows, two sets of IPC handlers, and have both processes
+// stomping on the same electron-store file. Quit early if another
+// instance already owns the lock; nudge the existing instance to surface.
+const _hasLock = app.requestSingleInstanceLock();
+if (!_hasLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Someone tried to start us again — bring the chat (or robot) forward.
+    const rw = getRobotWindow();
+    if (rw && !rw.isDestroyed()) {
+      try { rw.show(); rw.focus(); } catch (_) {}
+    }
+    const cw = getChatWindow();
+    if (cw && !cw.isDestroyed()) {
+      try { cw.show(); cw.focus(); } catch (_) {}
+    }
+  });
+}
 
 app.whenReady().then(() => {
   initAgents(store, () => getChatWindow());
@@ -124,8 +171,7 @@ app.whenReady().then(() => {
   const setSilentFn = (v) => {
     setSilent(v);
     store.set('silentMode', v);
-    const cw = getChatWindow();
-    if (cw) cw.webContents.send('silent-changed', v);
+    safeSend(getChatWindow(), 'silent-changed', v);
     updateTrayMenu(trayCallbacks);
     if (v) hideBubble();
   };
@@ -138,8 +184,7 @@ app.whenReady().then(() => {
   const getThemeFn = () => store.get('theme', 'dark');
   const setThemeFn = (v) => {
     store.set('theme', v);
-    const cw = getChatWindow();
-    if (cw) cw.webContents.send('theme-changed', v);
+    safeSend(getChatWindow(), 'theme-changed', v);
     updateTrayMenu(trayCallbacks);
   };
   const trayCallbacks = {
@@ -161,18 +206,35 @@ app.whenReady().then(() => {
   const rw = getRobotWindow();
   rw.webContents.once('did-finish-load', () => {
     startCursorTracking();
-    rw.webContents.send('set-accent', { color: '#D97757', soft: 'rgba(217,119,87,.5)' });
+    safeSend(rw, 'set-accent', { color: '#D97757', soft: 'rgba(217,119,87,.5)' });
   });
 
-  globalShortcut.register('CommandOrControl+Shift+Space', () => {
+  // Register global shortcuts. .register() returns false if the chord is
+  // already taken by another app — surface that to the user via bubble so
+  // they know why a key isn't working, instead of silently no-op'ing.
+  const failedShortcuts = [];
+  const reg1 = globalShortcut.register('CommandOrControl+Shift+Space', () => {
     const rw = getRobotWindow();
     if (rw) {
       if (getPeekSide()) recallRobot();
-      rw.webContents.send('trigger-pulse');
+      safeSend(rw, 'trigger-pulse');
     }
     toggleChat();
   });
-  globalShortcut.register('CommandOrControl+Shift+R', () => recallRobot());
+  if (!reg1) failedShortcuts.push('Ctrl+Shift+Space');
+  const reg2 = globalShortcut.register('CommandOrControl+Shift+R', () => recallRobot());
+  if (!reg2) failedShortcuts.push('Ctrl+Shift+R');
+  if (failedShortcuts.length) {
+    // Defer slightly so the bubble window is ready.
+    setTimeout(() => {
+      try {
+        showBubble(
+          `快捷键被占用: ${failedShortcuts.join('、')}。其他应用先注册了相同组合，请关闭它们或更换。`,
+          'claude'
+        );
+      } catch (_) {}
+    }, 2500);
+  }
 
   createTray(trayCallbacks);
 

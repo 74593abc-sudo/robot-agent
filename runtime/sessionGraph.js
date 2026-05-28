@@ -125,6 +125,25 @@ class SessionGraph {
     delete this._branchCache[agent];
   }
 
+  /**
+   * Start a fresh branch without dropping any existing nodes.
+   *
+   * Why this exists: Switching personas for Hermes/OpenClaw used to call
+   * graph.clear() which permanently destroyed conversation history. With
+   * forkNew the user can switch persona, get a clean slate, and still
+   * recover earlier turns through fork (Claude) or by exporting the store.
+   *
+   * Implementation: simply detaches the current leaf so subsequent appends
+   * start a new tree. The old branch's nodes remain reachable through
+   * getNode() / explicit setLeaf().
+   */
+  forkNew(agent) {
+    const g = this._load(agent);
+    g.leaf = null;
+    this._save(agent, g);
+    delete this._branchCache[agent];
+  }
+
   /** Limit total stored nodes per agent to keep store small. */
   _cap(g, maxNodes = 600) {
     const ids = Object.keys(g.nodes);

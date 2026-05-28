@@ -1,6 +1,29 @@
+# Dependencies & build output
 node_modules/
 dist/
 out/
+build/
+
+# Logs
 *.log
+electron-*.log
+electron-log.txt
+
+# OS metadata
 .DS_Store
 Thumbs.db
+
+# Local development scratch files (screenshots, capture scripts, etc.)
+_*.png
+_*.ps1
+_*.log
+_verify/
+_peek/
+_szchk/
+
+# Backups created by automated audit/refactor passes
+backups/
+
+# Editor / tooling local config that shouldn't be checked in
+.claude/settings.local.json
+.kiro/settings.local.json

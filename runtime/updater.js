@@ -24,6 +24,31 @@ function init({ getBubbleShowFn } = {}) {
     return;
   }
 
+  // Skip if no publish config or the placeholder owner is still set.
+  // Without these guards the updater would hammer a non-existent GitHub
+  // user every 6 hours, fill the log with 404s, and (worse) become a
+  // remote code-replacement vector if anyone registered the placeholder
+  // username. To enable auto-updates, add a publish entry to package.json
+  // with a real owner/repo.
+  try {
+    const pkg = require('../package.json');
+    const pub = Array.isArray(pkg.build && pkg.build.publish)
+      ? pkg.build.publish[0]
+      : (pkg.build && pkg.build.publish);
+    if (!pub) {
+      console.log('[updater] disabled: no publish config in package.json');
+      return;
+    }
+    const owner = pub.owner;
+    if (!owner || /REPLACE_ME|<.*>/i.test(owner)) {
+      console.warn('[updater] disabled: publish.owner is a placeholder ("' + owner + '"). ' +
+                   'Set it to a real GitHub user/org in package.json to enable auto-updates.');
+      return;
+    }
+  } catch (_) {
+    return;
+  }
+
   let autoUpdater;
   try {
     ({ autoUpdater } = require('electron-updater'));

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // Prevent IPC listener stacking: remove previous listener on a channel
 // before adding a new one. This is safe because each renderer page
@@ -6,6 +6,21 @@ const { contextBridge, ipcRenderer } = require('electron');
 function _safeOn(channel, handler) {
   ipcRenderer.removeAllListeners(channel);
   ipcRenderer.on(channel, handler);
+}
+
+// Resolve a File handle to its absolute path on disk.
+//
+// Electron <= 31 exposed File.path on dragged files. Electron 32 removed
+// it; the replacement is webUtils.getPathForFile(file). We bridge both so
+// the renderer can remain blissfully unaware of the version split.
+function _getFilePath(file) {
+  try {
+    if (webUtils && typeof webUtils.getPathForFile === 'function') {
+      return webUtils.getPathForFile(file) || '';
+    }
+  } catch (_) {}
+  // Fallback for older Electron where File.path still exists.
+  return (file && file.path) || '';
 }
 
 contextBridge.exposeInMainWorld('robot', {
@@ -65,9 +80,19 @@ contextBridge.exposeInMainWorld('robot', {
   setTheme:          (t)      => ipcRenderer.send('set-theme', t),
   onThemeChanged:    (cb)     => { _safeOn('theme-changed',          (_, t) => cb(t)); },
 
+  // Generic UI flags persisted in main-process store.
+  // Use cases: "user has seen the close-button education tooltip" etc.
+  // Do NOT use this for secrets — values land in plain electron-store JSON.
+  getFlag:           (k)      => ipcRenderer.invoke('get-ui-flag', k),
+  setFlag:           (k, v)   => ipcRenderer.send('set-ui-flag', { key: k, value: v }),
+
   // Bubble window
   onBubbleShow:      (cb)     => { _safeOn('bubble-show',          (_, d) => cb(d)); },
   onBubbleHide:      (cb)     => { _safeOn('bubble-hide',          ()    => cb()); },
   bubbleClick:       ()       => ipcRenderer.send('bubble-click'),
   bubbleDismiss:     ()       => ipcRenderer.send('bubble-dismiss'),
+
+  // Drag-drop helper: resolve a File handle to its disk path.
+  // Renderer-side use: window.robot.getFilePath(file) returns '' if unknown.
+  getFilePath:       (file)   => _getFilePath(file),
 });

@@ -2,10 +2,11 @@ const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { ClaudeRuntime } = require('./claudeRuntime');
+const { ClaudeRuntime, resolveAgentBinary } = require('./claudeRuntime');
 const { SessionGraph } = require('./sessionGraph');
 const personas = require('./personas');
 const { setRobotState, flashRobotError, getIsChatVisible, showBubble } = require('./windows');
+const { safeSend } = require('./safeSend');
 
 let store = null;
 let graph = null;
@@ -61,7 +62,7 @@ function stripAnsi(str) {
 
 function emitEvent(ev) {
   const w = typeof chatWindow === 'function' ? chatWindow() : chatWindow;
-  if (w) w.webContents.send('agent-event', ev);
+  safeSend(w, 'agent-event', ev);
 }
 
 function flushTokens(agentName) {
@@ -122,11 +123,15 @@ function handleClaudeEvent(ev) {
       flushTokens('claude');
       const text = ev.text || '';
       if (text) {
+        // Prefer the persona that was active when the turn started; fall
+        // back to the live currentPersona only if inflight is gone (race
+        // with a stop/error path).
+        const persona = (inflight.claude && inflight.claude.persona) || currentPersona.claude;
         const node = graph.append('claude', {
           role: 'assistant',
           text,
           claudeSessionId: lastClaudeSessionId || undefined,
-          persona: inflight.claude ? inflight.claude.persona : currentPersona.claude,
+          persona,
         });
         emitEvent({ type: 'done', agent: 'claude', text, nodeId: node.id, claudeSessionId: lastClaudeSessionId });
         if (!getIsChatVisible() && !silentMode) showBubble(text, 'claude', silentMode);
@@ -145,6 +150,10 @@ function handleClaudeEvent(ev) {
       break;
     case 'exit':
       claudeRT = null;
+      // Tell the chat UI that the runtime is no longer ready, so the next
+      // user message will trigger ensureClaudeRuntime() and a re-spawn.
+      emitEvent({ type: 'state', agent: 'claude', state: 'idle' });
+      emitEvent({ type: 'ready_changed', agent: 'claude', ready: false });
       break;
   }
 }
@@ -181,14 +190,44 @@ function buildPlainCommand(agentName, message) {
   return null;
 }
 
+/**
+ * Best-effort termination of a child process tree.
+ *
+ * Why: On Windows, child_process.kill() only signals the immediate process;
+ * any grandchildren spawned by the CLI (workers, helpers) become orphans.
+ * We use `taskkill /F /T /PID` to walk the tree. On posix, signalling the
+ * direct child is sufficient because CLIs typically forward signals.
+ */
+function killProcessTree(proc) {
+  if (!proc || proc.exitCode !== null) return;
+  const pid = proc.pid;
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    try {
+      // detached + ignore stdio so this taskkill doesn't keep us alive
+      const k = spawn('taskkill', ['/F', '/T', '/PID', String(pid)], {
+        windowsHide: true, stdio: 'ignore', detached: true,
+      });
+      try { k.unref(); } catch (_) {}
+    } catch (_) {}
+    // Also send SIGTERM as a fallback in case taskkill fails to launch.
+    try { proc.kill(); } catch (_) {}
+  } else {
+    try { proc.kill(); } catch (_) {}
+  }
+}
+
 function runPlainAgent(agentName, message) {
   const cmdArr = buildPlainCommand(agentName, message);
   if (!cmdArr) return;
-  const [cmd, args] = cmdArr;
+  const [cmdName, args] = cmdArr;
   const cwd = getSessionDir(agentName);
+  // Resolve to an absolute path so spawn(..., shell:false) works on Windows
+  // even when the CLI is shipped as a `.cmd` shim.
+  const cmd = resolveAgentBinary(cmdName);
 
   if (runningProc[agentName]) {
-    try { runningProc[agentName].kill(); } catch (_) {}
+    killProcessTree(runningProc[agentName]);
     runningProc[agentName] = null;
   }
   tokenBuf[agentName] = '';
@@ -210,6 +249,10 @@ function runPlainAgent(agentName, message) {
   conversationStarted[agentName] = true;
 
   let collected = '';
+  // Track stderr separately so we can surface it in the exit message when
+  // the process fails. Capped to keep memory bounded.
+  let stderrBuf = '';
+  const STDERR_CAP = 4 * 1024;
   let sawFirst = false;
   // Cap collected output to prevent OOM if a CLI floods stdout.
   // 4MB is plenty for any reasonable conversation reply; beyond that we
@@ -223,7 +266,7 @@ function runPlainAgent(agentName, message) {
       collected += '\n\n…[输出过长，已截断]';
       stdoutTruncated = true;
       // Stop the child to free resources.
-      try { proc.kill(); } catch (_) {}
+      killProcessTree(proc);
     } else {
       collected += chunk;
     }
@@ -239,6 +282,10 @@ function runPlainAgent(agentName, message) {
     const chunk = stripAnsi(d.toString());
     if (!chunk || chunk.length <= 5) return;
     if (/^\s*(Warning|Info|Debug|Hint):/i.test(chunk)) return;
+    // Capture for end-of-process error reporting (capped)
+    if (stderrBuf.length < STDERR_CAP) {
+      stderrBuf += chunk.slice(0, STDERR_CAP - stderrBuf.length);
+    }
     appendCollected(chunk);
     if (!stdoutTruncated) queueToken(agentName, chunk);
   });
@@ -251,7 +298,17 @@ function runPlainAgent(agentName, message) {
       emitEvent({ type: 'done', agent: agentName, text, nodeId: node.id });
       if (!getIsChatVisible() && !silentMode) showBubble(text, agentName, silentMode);
     } else {
-      emitEvent({ type: 'error', agent: agentName, error: code !== 0 ? `进程退出码 ${code}` : '未收到回复' });
+      // Surface stderr alongside the exit code so users can debug CLI errors.
+      let msg;
+      if (code !== 0) {
+        const tail = stderrBuf.trim();
+        msg = tail
+          ? `进程退出码 ${code} · ${tail.slice(-400)}`
+          : `进程退出码 ${code}`;
+      } else {
+        msg = '未收到回复';
+      }
+      emitEvent({ type: 'error', agent: agentName, error: msg });
     }
     inflight[agentName] = null;
     onTurnFinished(agentName, !!text);
@@ -270,7 +327,11 @@ function sendToAgent(agentName, text) {
   if (agentName !== 'claude') {
     const p = personas.get(persona);
     if (p.systemPrompt && !conversationStarted[agentName]) {
-      outboundText = `[系统指令] ${p.systemPrompt}\n\n[用户] ${text}`;
+      // Prepend persona as instructions on the first turn of the session.
+      // We use locale-neutral tags ([System]/[User]) — the persona body
+      // itself is already localised via personas.js, which determines the
+      // language the model is most likely to reply in.
+      outboundText = `[System]\n${p.systemPrompt}\n\n[User]\n${text}`;
     }
   }
 
@@ -292,7 +353,7 @@ function stopAgent(agentName) {
     if (claudeRT) { claudeRT.interrupt(); }
   } else {
     const p = runningProc[agentName];
-    if (p) { try { p.kill(); } catch (_) {} runningProc[agentName] = null; }
+    if (p) { killProcessTree(p); runningProc[agentName] = null; }
   }
   inflight[agentName] = null;
   emitEvent({ type: 'error', agent: agentName, error: '已停止生成' });
@@ -313,12 +374,12 @@ function setPersona(agentName, personaId) {
   if (agentName === 'hermes' || agentName === 'openclaw') {
     // Hermes/OpenClaw inject persona as a prefix to the FIRST user message of
     // a session — switching mid-conversation would silently do nothing until
-    // a new session starts. Clear the branch so the new persona takes effect
-    // immediately and the user sees a clean slate.
-    graph.clear(agentName);
+    // a new session starts. Start a new branch (preserves old nodes for
+    // potential recovery) so the new persona takes effect immediately.
+    graph.forkNew(agentName);
     conversationStarted[agentName] = false;
     if (runningProc[agentName]) {
-      try { runningProc[agentName].kill(); } catch (_) {}
+      killProcessTree(runningProc[agentName]);
       runningProc[agentName] = null;
     }
   }
@@ -356,7 +417,7 @@ function newConversation(agentName) {
     lastClaudeSessionId = null;
   } else {
     conversationStarted[agentName] = false;
-    if (runningProc[agentName]) { try { runningProc[agentName].kill(); } catch (_) {} runningProc[agentName] = null; }
+    if (runningProc[agentName]) { killProcessTree(runningProc[agentName]); runningProc[agentName] = null; }
   }
 }
 
@@ -367,7 +428,7 @@ function setSilent(v) { silentMode = v; }
 
 function cleanup() {
   if (claudeRT) { try { claudeRT.stop(); } catch (_) {} }
-  Object.values(runningProc).forEach(p => { if (p) try { p.kill(); } catch (_) {} });
+  Object.values(runningProc).forEach(p => { if (p) killProcessTree(p); });
 }
 
 module.exports = {

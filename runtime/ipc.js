@@ -16,17 +16,29 @@ const {
 const { updateTrayMenu } = require('./tray');
 const store = require('./store');
 const { checkAgents } = require('./agentCheck');
+const { safeSend } = require('./safeSend');
 
 let trayCallbacks = null;
+
+// Allow re-registering on test reloads without "second handler for X" errors.
+// In production register() runs exactly once, so this is a no-op.
+const _registeredChannels = new Set();
+function _on(ch, fn)     { if (_registeredChannels.has(ch)) ipcMain.removeAllListeners(ch); ipcMain.on(ch, fn); _registeredChannels.add(ch); }
+function _handle(ch, fn) { if (_registeredChannels.has(ch)) ipcMain.removeHandler(ch); ipcMain.handle(ch, fn); _registeredChannels.add(ch); }
+
+const VALID_AGENTS = new Set(['claude', 'hermes', 'openclaw']);
+function isValidAgent(a) { return typeof a === 'string' && VALID_AGENTS.has(a); }
+function isFiniteNumber(n) { return typeof n === 'number' && Number.isFinite(n); }
+function clampInt(n, min, max) { return Math.max(min, Math.min(max, Math.round(n))); }
 
 function setTrayCallbacks(callbacks) {
   trayCallbacks = callbacks;
 }
 
 function register() {
-  ipcMain.on('toggle-chat', () => { noteInteraction(); toggleChat(); });
+  _on('toggle-chat', () => { noteInteraction(); toggleChat(); });
 
-  ipcMain.on('robot-moved', () => {
+  _on('robot-moved', () => {
     noteInteraction();
     if (isThrownLock()) return;
     clampRobotSize();
@@ -38,18 +50,29 @@ function register() {
     else if (getPeekSide()) setPeek('');
   });
 
-  ipcMain.on('move-window', (_, { x, y }) => {
+  _on('move-window', (_, payload) => {
+    // Validate: payload must be {x:finite, y:finite}. Reject NaN / Infinity /
+    // non-numeric so setBounds never sees garbage that could throw a Win32
+    // error and crash the renderer's IPC channel.
+    if (!payload || !isFiniteNumber(payload.x) || !isFiniteNumber(payload.y)) return;
+    const x = clampInt(payload.x, -32768, 32767);
+    const y = clampInt(payload.y, -32768, 32767);
     noteInteraction();
     if (isThrownLock()) { setThrowAbort(true); }
     setSmoothMoveAbort(true);
     const rw = getRobotWindow();
-    if (rw) rw.setBounds({ x, y, width: ROBOT_W, height: ROBOT_H });
+    if (rw) {
+      try { rw.setBounds({ x, y, width: ROBOT_W, height: ROBOT_H }); } catch (_) {}
+    }
     const bw = getBubbleWindow();
     if (bw && bw.isVisible()) positionBubbleWindow();
     if (getPeekSide()) setPeek('');
   });
 
-  ipcMain.on('throw-from', (_, { vx, vy }) => {
+  _on('throw-from', (_, payload) => {
+    if (!payload || !isFiniteNumber(payload.vx) || !isFiniteNumber(payload.vy)) return;
+    const vx = clampInt(payload.vx, -2000, 2000);
+    const vy = clampInt(payload.vy, -2000, 2000);
     noteInteraction();
     throwWindow(vx, vy, () => {
       setRobotState(getIsChatVisible() ? 'active' : 'idle');
@@ -60,29 +83,46 @@ function register() {
     });
   });
 
-  ipcMain.on('send-message', (_, { agent, text }) => {
+  _on('send-message', (_, payload) => {
+    if (!payload || !isValidAgent(payload.agent)) return;
+    let { agent, text } = payload;
     if (typeof text !== 'string' || !text.trim()) return;
-    if (text.length > 100000) { text = text.slice(0, 100000); }
+    if (text.length > 100000) text = text.slice(0, 100000);
     noteInteraction();
     sendToAgent(agent, text);
   });
-  ipcMain.on('stop-agent', (_, agentName) => { noteInteraction(); stopAgent(agentName); });
-
-  ipcMain.on('start-agent', (_, agentName) => {
+  _on('stop-agent', (_, agentName) => {
+    if (!isValidAgent(agentName)) return;
     noteInteraction();
-    if (agentName === 'claude') ensureClaudeRuntime();
-    const cw = getChatWindow();
-    if (cw) cw.webContents.send('agent-ready', { agent: agentName });
+    stopAgent(agentName);
   });
 
-  ipcMain.handle('get-branch', (_, agentName) => getBranch(agentName));
-  ipcMain.handle('get-silent', () => getSilent());
-  ipcMain.handle('get-personas', () => getPersonas());
+  _on('start-agent', (_, agentName) => {
+    if (!isValidAgent(agentName)) return;
+    noteInteraction();
+    if (agentName === 'claude') ensureClaudeRuntime();
+    safeSend(getChatWindow(), 'agent-ready', { agent: agentName });
+  });
 
-  ipcMain.on('set-persona', (_, { agent, persona }) => { noteInteraction(); setPersona(agent, persona); });
-  ipcMain.on('fork-from', (_, { agent, nodeId }) => { noteInteraction(); forkFrom(agent, nodeId); });
+  _handle('get-branch', (_, agentName) => isValidAgent(agentName) ? getBranch(agentName) : []);
+  _handle('get-silent', () => getSilent());
+  _handle('get-personas', () => getPersonas());
 
-  ipcMain.on('new-conversation', (_, agentName) => { newConversation(agentName); });
+  _on('set-persona', (_, payload) => {
+    if (!payload || !isValidAgent(payload.agent) || typeof payload.persona !== 'string') return;
+    noteInteraction();
+    setPersona(payload.agent, payload.persona);
+  });
+  _on('fork-from', (_, payload) => {
+    if (!payload || !isValidAgent(payload.agent) || typeof payload.nodeId !== 'string') return;
+    noteInteraction();
+    forkFrom(payload.agent, payload.nodeId);
+  });
+
+  _on('new-conversation', (_, agentName) => {
+    if (!isValidAgent(agentName)) return;
+    newConversation(agentName);
+  });
 
   const AGENT_ACCENT = {
     claude:   { color: '#D97757', soft: 'rgba(217,119,87,.5)' },
@@ -90,71 +130,115 @@ function register() {
     hermes:   { color: '#F37021', soft: 'rgba(243,112,33,.5)' },
   };
 
-  ipcMain.on('agent-changed', (_, agentName) => {
-    const a = AGENT_ACCENT[agentName];
-    const rw = getRobotWindow();
-    if (a && rw) rw.webContents.send('set-accent', a);
+  _on('agent-changed', (_, agentName) => {
+    if (!isValidAgent(agentName)) return;
+    safeSend(getRobotWindow(), 'set-accent', AGENT_ACCENT[agentName]);
   });
 
-  ipcMain.on('bubble-click', () => { noteInteraction(); hideBubble(); toggleChat(); });
-  ipcMain.on('bubble-dismiss', () => { noteInteraction(); hideBubble(); });
+  _on('bubble-click', () => { noteInteraction(); hideBubble(); toggleChat(); });
+  _on('bubble-dismiss', () => { noteInteraction(); hideBubble(); });
 
-  ipcMain.on('toggle-silent', () => {
+  _on('toggle-silent', () => {
     const newSilent = !getSilent();
     setSilent(newSilent);
     store.set('silentMode', newSilent);
-    const cw = getChatWindow();
-    if (cw) cw.webContents.send('silent-changed', newSilent);
+    safeSend(getChatWindow(), 'silent-changed', newSilent);
     if (trayCallbacks) updateTrayMenu(trayCallbacks);
     if (newSilent) hideBubble();
   });
 
-  ipcMain.handle('get-first-launch', () => {
+  _handle('get-first-launch', () => {
     return !store.get('hasLaunched', false);
   });
 
-  ipcMain.handle('get-auto-start', () => {
+  _handle('get-auto-start', () => {
     return store.get('autoStart', false);
   });
 
-  ipcMain.on('set-auto-start', (_, enabled) => {
-    store.set('autoStart', enabled);
-    app.setLoginItemSettings({
-      openAtLogin: enabled,
-      path: app.getPath('exe'),
-    });
+  _on('set-auto-start', (_, enabled) => {
+    const flag = !!enabled;
+    store.set('autoStart', flag);
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: flag,
+        path: app.getPath('exe'),
+      });
+    } catch (_) {}
   });
 
-  ipcMain.handle('get-agent-status', () => {
-    return checkAgents();
+  // Cache agent presence for 60s — the underlying `where`/`which` lookup
+  // can take a few hundred ms each and chat.html invokes this on every
+  // window open. PATH changes between sessions are rare; the tray's
+  // "重新检测智能体" item explicitly bypasses the cache by going through
+  // runAgentCheckOnStartup({ force:true }).
+  let _agentStatusCache = null;
+  let _agentStatusTs = 0;
+  _handle('get-agent-status', async () => {
+    const now = Date.now();
+    if (_agentStatusCache && (now - _agentStatusTs) < 60_000) {
+      return _agentStatusCache;
+    }
+    _agentStatusCache = await checkAgents();
+    _agentStatusTs = now;
+    return _agentStatusCache;
   });
 
-  ipcMain.handle('get-theme', () => {
-    return store.get('theme', 'dark');
-  });
+  _handle('get-theme', () => store.get('theme', 'dark'));
 
-  ipcMain.on('set-theme', (_, theme) => {
+  _on('set-theme', (_, theme) => {
+    if (theme !== 'dark' && theme !== 'light') return;
     store.set('theme', theme);
   });
 
-  ipcMain.on('hide-chat', () => {
+  // Generic UI flag store. Limited to a fixed key prefix so the renderer
+  // can't write arbitrary keys into our store. Values are coerced to a
+  // primitive (string|number|boolean) to avoid arbitrary-shape persistence.
+  const UI_FLAG_PREFIX = 'ui.flag.';
+  const isValidFlagKey = (k) => typeof k === 'string' && /^[a-z0-9_-]{1,64}$/i.test(k);
+  _handle('get-ui-flag', (_, key) => {
+    if (!isValidFlagKey(key)) return null;
+    return store.get(UI_FLAG_PREFIX + key, null);
+  });
+  _on('set-ui-flag', (_, payload) => {
+    if (!payload || !isValidFlagKey(payload.key)) return;
+    const v = payload.value;
+    const t = typeof v;
+    if (v !== null && t !== 'string' && t !== 'number' && t !== 'boolean') return;
+    store.set(UI_FLAG_PREFIX + payload.key, v);
+  });
+
+  _on('hide-chat', () => {
     const cw = getChatWindow();
     if (cw && getIsChatVisible()) {
-      cw.hide(); setIsChatVisible(false); setRobotState('idle');
+      try { cw.hide(); } catch (_) {}
+      setIsChatVisible(false);
+      setRobotState('idle');
     }
   });
 
-  ipcMain.on('quit-app', () => {
+  _on('quit-app', () => {
     app.quit();
   });
 
-  ipcMain.on('onboarding-done', () => {
+  _on('onboarding-done', () => {
     store.set('onboardingDone', true);
     // Prefer the explicit global reference; fall back to title match.
     const onbWin = global.__onboardingWindow
-      || BrowserWindow.getAllWindows().find(w => w.getTitle() === '灵珑 · 新手引导');
-    if (onbWin && !onbWin.isDestroyed()) onbWin.close();
+      || BrowserWindow.getAllWindows().find(w => {
+        try { return w.getTitle() === '灵珑 · 新手引导'; } catch (_) { return false; }
+      });
+    if (onbWin && !onbWin.isDestroyed()) {
+      try { onbWin.close(); } catch (_) {}
+    }
   });
+
+  // Dropped-file path resolution: Electron 32+ removed File.path. Renderer
+  // hands us a webUtils-resolved path; if that fails we accept a plain
+  // string as a fallback (older Electron, Linux drag/drop).
+  // We do not read the file — the path is just inserted as `@path` text
+  // in the chat input. No filesystem access happens here.
+  // (Validation lives in the renderer; main only echoes the result back
+  // for any future use case that needs it.)
 }
 
 module.exports = { register, setTrayCallbacks };

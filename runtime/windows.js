@@ -1,5 +1,6 @@
 const { BrowserWindow, screen } = require('electron');
 const path = require('path');
+const { safeSend, isWinAlive } = require('./safeSend');
 
 const ROBOT_W = 135;
 const ROBOT_H = 162;
@@ -84,7 +85,9 @@ function positionBubbleWindow() {
   } catch (_) {}
 }
 
-let _bubbleLastTs = 0;
+// Per-agent debounce so a fast burst of replies from the same agent isn't
+// duplicated, but two different agents can both surface their first reply.
+const _bubbleLastTs = { claude: 0, hermes: 0, openclaw: 0, _global: 0 };
 let _bubbleHideTimer = null;
 
 function showBubble(text, agent, silentMode) {
@@ -93,13 +96,15 @@ function showBubble(text, agent, silentMode) {
   const cleaned = String(text).trim();
   if (cleaned.length < 8) return;
   const now = Date.now();
-  if (_bubbleLastTs && now - _bubbleLastTs < 4000) return;
-  _bubbleLastTs = now;
+  const key = (_bubbleLastTs[agent] !== undefined) ? agent : '_global';
+  if (_bubbleLastTs[key] && now - _bubbleLastTs[key] < 4000) return;
+  _bubbleLastTs[key] = now;
   if (!bubbleWindow) createBubbleWindow();
   const send = () => {
+    if (!isWinAlive(bubbleWindow)) return;
     positionBubbleWindow();
-    bubbleWindow.webContents.send('bubble-show', { text, agent });
-    bubbleWindow.showInactive();
+    safeSend(bubbleWindow, 'bubble-show', { text, agent });
+    try { bubbleWindow.showInactive(); } catch (_) { return; }
     if (_bubbleHideTimer) clearTimeout(_bubbleHideTimer);
     _bubbleHideTimer = setTimeout(() => hideBubble(), 6500);
   };
@@ -110,9 +115,13 @@ function showBubble(text, agent, silentMode) {
 
 function hideBubble() {
   if (_bubbleHideTimer) { clearTimeout(_bubbleHideTimer); _bubbleHideTimer = null; }
-  if (bubbleWindow && bubbleWindow.isVisible()) {
-    bubbleWindow.webContents.send('bubble-hide');
-    setTimeout(() => { if (bubbleWindow) bubbleWindow.hide(); }, 350);
+  if (isWinAlive(bubbleWindow) && bubbleWindow.isVisible()) {
+    safeSend(bubbleWindow, 'bubble-hide');
+    setTimeout(() => {
+      if (isWinAlive(bubbleWindow)) {
+        try { bubbleWindow.hide(); } catch (_) {}
+      }
+    }, 350);
   }
 }
 
@@ -146,7 +155,7 @@ function toggleChat() {
 }
 
 function setRobotState(state) {
-  if (robotWindow) robotWindow.webContents.send('set-state', state);
+  safeSend(robotWindow, 'set-state', state);
 }
 
 function flashRobotError(duration = 2200) {

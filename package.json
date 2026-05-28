@@ -2,10 +2,12 @@
   "name": "robot-agent",
   "version": "1.0.0",
   "description": "Floating AI Robot Agent Desktop App",
+  "license": "AGPL-3.0-only",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "jest --passWithNoTests",
+    "test": "node __tests__/_run-no-jest.js",
+    "test:jest": "jest --passWithNoTests",
     "build:win": "electron-builder --win --x64"
   },
   "dependencies": {
@@ -48,15 +50,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "灵珑 LingLong"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "REPLACE_ME_GITHUB_USER",
-        "repo": "robot-agent",
-        "releaseType": "release"
-      }
-    ]
+      "shortcutName": "灵珑 LingLong",
+      "artifactName": "LingLong-Setup-${version}.${ext}"
+    }
   }
 }

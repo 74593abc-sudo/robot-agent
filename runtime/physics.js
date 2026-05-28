@@ -1,5 +1,6 @@
 const { screen } = require('electron');
 const { ROBOT_W, ROBOT_H, getRobotWindow, clampRobotSize } = require('./windows');
+const { safeSend, isWinAlive } = require('./safeSend');
 
 // Peek width: how many pixels of the robot stay on screen when it's snapped
 // to an off-screen edge. ROBOT_W is 135, so 67 means the window is half on /
@@ -12,7 +13,7 @@ const SNAP_THRESHOLD = 4;
 let peekSide = '';
 let peekSetAt = 0;
 let smoothMoveAbort = false;
-let smoothMoveRaf = 0;
+let smoothMoveTimer = 0;
 let thrownLock = false;
 let throwAbort = false;
 let lastInteractionTs = Date.now();
@@ -22,8 +23,7 @@ function noteInteraction() {
   lastInteractionTs = Date.now();
   if (moodTired) {
     moodTired = false;
-    const robotWindow = getRobotWindow();
-    if (robotWindow) robotWindow.webContents.send('set-mood', { tired: false });
+    safeSend(getRobotWindow(), 'set-mood', { tired: false });
   }
 }
 
@@ -33,12 +33,14 @@ function smoothMoveWindow(targetX, targetY, duration = 260) {
   const [startX, startY] = robotWindow.getPosition();
   if (startX === targetX && startY === targetY) return;
   smoothMoveAbort = false;
-  if (smoothMoveRaf) clearTimeout(smoothMoveRaf);
+  // We use setTimeout, not rAF — main process has no requestAnimationFrame.
+  // 16ms ≈ 60fps which is sufficient for a position tween.
+  if (smoothMoveTimer) clearTimeout(smoothMoveTimer);
   const startTime = Date.now();
   let lastX = startX, lastY = startY;
   const tick = () => {
     const rw = getRobotWindow();
-    if (!rw || smoothMoveAbort) { smoothMoveRaf = 0; return; }
+    if (!isWinAlive(rw) || smoothMoveAbort) { smoothMoveTimer = 0; return; }
     const t = Math.min(1, (Date.now() - startTime) / duration);
     const e = 1 - Math.pow(1 - t, 3);
     const nx = Math.round(startX + (targetX - startX) * e);
@@ -48,10 +50,10 @@ function smoothMoveWindow(targetX, targetY, duration = 260) {
     // forced through to land exactly on target.
     if (t >= 1 || nx !== lastX || ny !== lastY) {
       try { rw.setBounds({ x: nx, y: ny, width: ROBOT_W, height: ROBOT_H }); }
-      catch (_) { smoothMoveRaf = 0; return; }
+      catch (_) { smoothMoveTimer = 0; return; }
       lastX = nx; lastY = ny;
     }
-    if (t < 1) smoothMoveRaf = setTimeout(tick, 16); else smoothMoveRaf = 0;
+    if (t < 1) smoothMoveTimer = setTimeout(tick, 16); else smoothMoveTimer = 0;
   };
   tick();
 }
@@ -81,8 +83,7 @@ function getEdgeSnap() {
 function setPeek(side) {
   peekSide = side;
   peekSetAt = Date.now();
-  const robotWindow = getRobotWindow();
-  if (robotWindow) robotWindow.webContents.send('set-peek', side);
+  safeSend(getRobotWindow(), 'set-peek', side);
 }
 
 function maybeSlideBack() {
@@ -182,7 +183,16 @@ function throwWindow(vx0, vy0, onThrowEnd) {
 
     const nx = Math.round(x), ny = Math.round(y);
     if (nx !== lastSetX || ny !== lastSetY) {
-      try { rw.setBounds({ x: nx, y: ny, width: ROBOT_W, height: ROBOT_H }); } catch (_) {}
+      try { rw.setBounds({ x: nx, y: ny, width: ROBOT_W, height: ROBOT_H }); }
+      catch (_) {
+        // Window died mid-throw. Release the lock so subsequent clicks
+        // aren't ignored, and abort cleanly.
+        thrownLock = false;
+        if (onThrowEnd) {
+          try { onThrowEnd(); } catch (_) {}
+        }
+        return;
+      }
       lastSetX = nx; lastSetY = ny;
     }
 
@@ -219,16 +229,16 @@ function startPhysicsTimers() {
   if (slideBackTimer) return; // already running
   slideBackTimer = setInterval(() => {
     const robotWindow = getRobotWindow();
-    if (robotWindow && !robotWindow.isDestroyed()) maybeSlideBack();
+    if (isWinAlive(robotWindow)) maybeSlideBack();
   }, 200);
   moodTimer = setInterval(() => {
     const robotWindow = getRobotWindow();
-    if (!robotWindow || robotWindow.isDestroyed()) return;
+    if (!isWinAlive(robotWindow)) return;
     const idleMs = Date.now() - lastInteractionTs;
     const shouldBeTired = idleMs > 5 * 60 * 1000;
     if (shouldBeTired !== moodTired) {
       moodTired = shouldBeTired;
-      robotWindow.webContents.send('set-mood', { tired: moodTired });
+      safeSend(robotWindow, 'set-mood', { tired: moodTired });
     }
   }, 20000);
 }

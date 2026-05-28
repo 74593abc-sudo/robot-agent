@@ -15,7 +15,46 @@
 //   error       { error }
 //   exit        { code }
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+// Cache resolved absolute paths so we don't shell out to `where`/`which`
+// on every spawn. Cleared via clearAgentBinaryCache() (used by tests).
+const _binaryCache = new Map();
+
+function clearAgentBinaryCache() { _binaryCache.clear(); }
+
+/**
+ * Resolve a CLI binary name to an absolute path on the user's PATH.
+ *
+ * Why: We use spawn(..., { shell: false }) to avoid command-injection risk.
+ * But on Windows many CLIs (claude, hermes, openclaw) ship as `.cmd` shims
+ * that the OS only resolves through the shell. Looking up the absolute path
+ * up-front lets us keep shell:false everywhere.
+ *
+ * Falls back to the bare name if lookup fails — caller will see ENOENT and
+ * surface a real error to the UI.
+ */
+function resolveAgentBinary(name) {
+  if (_binaryCache.has(name)) return _binaryCache.get(name);
+  const tool = process.platform === 'win32' ? 'where' : 'which';
+  let resolved = name;
+  try {
+    const r = spawnSync(tool, [name], { encoding: 'utf8', windowsHide: true });
+    if (r.status === 0 && r.stdout) {
+      // `where` may return multiple lines; pick the first that exists.
+      const lines = r.stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      for (const candidate of lines) {
+        try {
+          if (fs.existsSync(candidate)) { resolved = candidate; break; }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  _binaryCache.set(name, resolved);
+  return resolved;
+}
 
 class ClaudeRuntime {
   constructor(opts) {
@@ -61,9 +100,14 @@ class ClaudeRuntime {
       TERM: 'dumb'
     };
 
+    // shell:false avoids any chance of metacharacter injection through args.
+    // On Windows, `claude` is typically a `.cmd`/`.ps1` shim that requires the
+    // shell to resolve — we look up the explicit binary path instead so that
+    // shell:false works the same on win32 as on posix.
+    const cmd = resolveAgentBinary('claude');
     try {
-      this.proc = spawn('claude', args, {
-        shell: true,
+      this.proc = spawn(cmd, args, {
+        shell: false,
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: this.cwd,
         env,
@@ -86,18 +130,36 @@ class ClaudeRuntime {
     }, 10000);
     this.proc.stderr.on('data', (chunk) => {
       const s = chunk.toString();
-      if (s.trim() && !/^\s*(Warning|Info|Debug|Hint):/i.test(s)) {
-        // surface real errors but ignore noisy notices
+      const trimmed = s.trim();
+      if (!trimmed) return;
+      // Filter known noise.
+      if (/^\s*(Warning|Info|Debug|Hint):/i.test(s)) return;
+      // Buffer up to a small cap and emit as an error so the user sees it.
+      // Only emit once per spawn — we don't want to spam events for a CLI
+      // that babbles on stderr during normal operation.
+      if (!this._stderrEmitted) {
+        this._stderrEmitted = true;
+        this._stderrBuf = '';
+      }
+      if (this._stderrBuf.length < 2048) {
+        this._stderrBuf += trimmed.slice(0, 2048 - this._stderrBuf.length);
       }
     });
     this.proc.on('exit', (code) => {
       const wasBusy = this.busy;
+      const stderrTail = this._stderrBuf || '';
       this.busy = false;
       this.proc = null;
       this.onEvent({ type: 'exit', code });
-      // If exited mid-turn and we weren't asked to stop, surface as error
+      // If exited mid-turn and we weren't asked to stop, surface as error.
+      // Include the stderr tail so users have something actionable instead
+      // of a bare "code N".
       if (wasBusy && !this.stopped) {
-        this.onEvent({ type: 'error', error: `Claude 进程意外退出 (code ${code})` });
+        const detail = stderrTail ? ` · ${stderrTail.slice(-400)}` : '';
+        this.onEvent({ type: 'error', error: `Claude 进程意外退出 (code ${code})${detail}` });
+      } else if (!wasBusy && stderrTail && code !== 0) {
+        // Process died between turns with a non-zero code — still worth surfacing.
+        this.onEvent({ type: 'error', error: `Claude: ${stderrTail.slice(-400)}` });
       }
     });
     this.proc.on('error', (err) => {
@@ -248,4 +310,4 @@ class ClaudeRuntime {
   }
 }
 
-module.exports = { ClaudeRuntime };
+module.exports = { ClaudeRuntime, resolveAgentBinary, clearAgentBinaryCache };

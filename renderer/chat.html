@@ -2,6 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';">
 <title>灵珑</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -475,10 +476,32 @@ const searchInput = document.getElementById('search-input');
 const searchInfo  = document.getElementById('search-info');
 
 // ── Markdown renderer ────────────────────────────────────────────
+// codeBlockStore is an in-memory accelerator. The authoritative copy of
+// each code block lives on the DOM as a base64-encoded data-code attribute,
+// so the "复制" button still works after the LRU evicts an entry.
 const codeBlockStore = new Map();
 let codeBlockId = 0;
 const CODE_BLOCK_MAX = 200;
 function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Encode text as base64 for safe round-tripping through an HTML attribute.
+// Handles unicode (TextEncoder + btoa) without choking on multi-byte chars.
+function _b64encode(s) {
+  try {
+    const bytes = new TextEncoder().encode(s);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  } catch (_) { return ''; }
+}
+function _b64decode(s) {
+  try {
+    const bin = atob(s);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  } catch (_) { return ''; }
+}
 
 // Defense-in-depth: strip any residual dangerous HTML after markdown rendering
 function sanitizeHtml(html) {
@@ -490,20 +513,27 @@ function sanitizeHtml(html) {
     .replace(/javascript:/gi, '');
 }
 
-// Cache rendered markdown paragraphs for incremental rendering
+// Cache rendered markdown — keyed by short input only. Long messages have
+// near-zero hit rate and just bloat memory; for those we render uncached.
 const renderCache = new Map();
-const RENDER_CACHE_MAX = 500;
+const RENDER_CACHE_MAX = 200;
+const RENDER_CACHE_LEN_LIMIT = 1024;   // only cache messages <= 1KB
 
 function renderMarkdown(text) {
   if (!text) return '';
-  // Check cache first
-  if (renderCache.has(text)) return renderCache.get(text);
+  const cacheable = text.length <= RENDER_CACHE_LEN_LIMIT;
+  const cacheKey = text;
+  if (cacheable && renderCache.has(cacheKey)) return renderCache.get(cacheKey);
   const blocks = [];
+  // 1. Pull code blocks out FIRST so their bodies (which may contain raw <,>,&)
+  //    aren't damaged by the global escape pass that follows.
   text = text.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     blocks.push({ lang: lang || 'text', code: code.replace(/\n$/, '') });
     return ` CB${blocks.length - 1} `;
   });
+  // 2. Escape the remaining text. The CB<n> placeholders survive untouched.
   text = escapeHtml(text);
+  // 3. Apply inline markdown rules to the now-escaped string.
   text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
@@ -556,30 +586,44 @@ function renderMarkdown(text) {
     const b = blocks[+i];
     const id = codeBlockId++;
     if (codeBlockStore.size >= CODE_BLOCK_MAX) {
-      const oldest = codeBlockStore.keys().next().value;
-      codeBlockStore.delete(oldest);
+      // Batch eviction: remove oldest 10% to reduce churn.
+      const evict = Math.max(1, Math.floor(CODE_BLOCK_MAX * 0.1));
+      for (let k = 0; k < evict; k++) {
+        const oldest = codeBlockStore.keys().next().value;
+        if (oldest === undefined) break;
+        codeBlockStore.delete(oldest);
+      }
     }
     codeBlockStore.set(id, b.code);
-    return `<pre class="code"><div class="code-head"><span class="lang">${escapeHtml(b.lang)}</span><button class="copy" data-idx="${id}">复制</button></div><code>${escapeHtml(b.code)}</code></pre>`;
+    // Encode the original code into data-code so copy keeps working even
+    // after LRU eviction. The displayed <code> stays HTML-escaped.
+    const dataCode = _b64encode(b.code);
+    return `<pre class="code"><div class="code-head"><span class="lang">${escapeHtml(b.lang)}</span><button class="copy" data-idx="${id}" data-code="${dataCode}">复制</button></div><code>${escapeHtml(b.code)}</code></pre>`;
   });
-  // Cache result
-  if (renderCache.size >= RENDER_CACHE_MAX) {
-    // Batch eviction: remove oldest 10% to reduce churn
-    const evict = Math.max(1, Math.floor(RENDER_CACHE_MAX * 0.1));
-    for (let i = 0; i < evict; i++) {
-      const oldest = renderCache.keys().next().value;
-      if (oldest !== undefined) renderCache.delete(oldest);
+  if (cacheable) {
+    if (renderCache.size >= RENDER_CACHE_MAX) {
+      // Batch eviction: remove oldest 10% to reduce churn
+      const evict = Math.max(1, Math.floor(RENDER_CACHE_MAX * 0.1));
+      for (let i = 0; i < evict; i++) {
+        const oldest = renderCache.keys().next().value;
+        if (oldest === undefined) break;
+        renderCache.delete(oldest);
+      }
     }
+    renderCache.set(cacheKey, text);
   }
-  renderCache.set(text, text);
   return text;
 }
 
 msgs.addEventListener('click', async (e) => {
   const btn = e.target.closest('.copy');
   if (btn) {
-    const code = codeBlockStore.get(+btn.dataset.idx);
-    if (code != null) {
+    // Prefer the in-memory store (fast path); fall back to the base64
+    // data-code attribute on the button so copy keeps working after the
+    // LRU evicts the entry.
+    let code = codeBlockStore.get(+btn.dataset.idx);
+    if (code == null && btn.dataset.code) code = _b64decode(btn.dataset.code);
+    if (code != null && code !== '') {
       navigator.clipboard.writeText(code).then(() => {
         btn.classList.add('copied');
         btn.textContent = '已复制';
@@ -726,11 +770,22 @@ function pruneOldRows() {
         rows[i].remove();
       }
     }
-    // Add placeholder at top
+    // Replace any old placeholder with an updated one. Click reloads the
+    // full branch so users can recover early messages — they're never
+    // permanently gone, just lazily detached from the DOM.
+    const oldPh = msgs.querySelector('.status-note.virtualized');
+    if (oldPh) oldPh.remove();
     const ph = document.createElement('div');
     ph.className = 'status-note virtualized';
-    ph.textContent = `— 已折叠 ${virtualizedOffset} 条早期消息 —`;
+    ph.textContent = `— 已折叠 ${virtualizedOffset} 条早期消息 · 点击展开 —`;
+    ph.style.cursor = 'pointer';
+    ph.title = '展开全部历史';
     ph.dataset.count = virtualizedOffset;
+    ph.addEventListener('click', () => {
+      // Reload reset clears the virtualization counter.
+      virtualizedOffset = 0;
+      loadBranch(agent);
+    });
     if (msgs.firstChild) msgs.insertBefore(ph, msgs.firstChild);
     else msgs.appendChild(ph);
   }
@@ -975,16 +1030,24 @@ function renderPersonas() {
     const el = document.createElement('div');
     el.className = 'pp' + (p.id === cur ? ' active' : '');
     el.innerHTML = `<span class="picon">${p.icon}</span>${p.label}`;
-    el.addEventListener('click', () => {
+    el.addEventListener('click', async () => {
       if (personas.current[agent] === p.id) return;
+      // Hermes/OpenClaw can't switch persona mid-session — backend will
+      // start a new branch. Confirm so the user knows current visible
+      // history is detached (still recoverable in the store).
+      if (agent !== 'claude') {
+        const ok = await showToast(
+          `切换到「${p.label}」模式将开启新分支，当前对话会保留在历史中但不再继续。继续吗？`
+        );
+        if (!ok) return;
+      }
       window.robot.setPersona(agent, p.id);
       personas.current[agent] = p.id;
       renderPersonas();
       refreshPersonaPill();
       // For Claude the new persona takes effect on next send (session resumed).
-      // For Hermes/OpenClaw the backend clears the branch — we wait for the
-      // 'persona' event to reload. Avoid showing a misleading "下一条生效"
-      // note for those agents.
+      // For Hermes/OpenClaw the backend forks the branch — we wait for the
+      // 'persona' event to reload.
       if (agent === 'claude') {
         addNote(`已切换到「${p.label}」模式 — 下一条消息开始生效`);
       }
@@ -994,14 +1057,24 @@ function renderPersonas() {
 }
 
 // ── Load branch ──────────────────────────────────────────────────
+//
+// Concurrency guard: rapid tab switching can trigger two overlapping
+// loadBranch() calls. The slow one (await getBranch) used to clobber the
+// fast one's DOM. We tag each invocation with a monotonic token and bail
+// out of any operation whose token is no longer current.
+let _loadBranchToken = 0;
 async function loadBranch(a) {
+  const myToken = ++_loadBranchToken;
   codeBlockStore.clear();
   msgs.innerHTML = '';
   liveTurn = null;
   lastAiNodeId = null;
+  virtualizedOffset = 0;
   waiting = false; sendBtn.classList.remove('stop'); sendBtn.disabled = false; sendBtn.innerHTML = '&#9658;';
   setStatus('starting', `正在加载 ${LABELS[a]} 历史...`);
   const branch = await window.robot.getBranch(a);
+  // Another loadBranch ran while we awaited. Discard our stale result.
+  if (myToken !== _loadBranchToken) return;
   if (!branch.length) { addNote(`开始与 ${LABELS[a]} 对话`); }
   else {
     addNote('— 历史记录 —');
@@ -1013,9 +1086,12 @@ async function loadBranch(a) {
         lastAiNodeId = m.id;
       }
     });
+    // Re-check token before mutating DOM.
+    if (myToken !== _loadBranchToken) return;
     msgs.appendChild(fragment);
     addNote('— 以上为历史记录 —');
   }
+  if (myToken !== _loadBranchToken) return;
   setStatus('ready');
   scrollBottom();
 }
@@ -1064,6 +1140,10 @@ window.robot.onAgentEvent(d => {
       else if (d.state === 'working') setStatus('working');
       break;
     case 'user_node':
+      // The renderer already inserted the user message synchronously in
+      // send(); the backend echoes back here only so it can attach the
+      // assigned nodeId. We don't need to redraw, but we deliberately
+      // leave the case handled so the default-branch warning doesn't fire.
       break;
     case 'token':
       if (!liveTurn || !liveTurn._sawToken) { setStatus('working'); ensureLiveTurn(); liveTurn._sawToken = true; }
@@ -1099,12 +1179,21 @@ window.robot.onAgentEvent(d => {
         renderPersonas();
         refreshPersonaPill();
         if (d.cleared) {
-          // Backend cleared branch (hermes/openclaw). Reload + tell the user.
+          // Backend forked a new branch (hermes/openclaw). Reload + tell
+          // the user — the old branch is detached but not destroyed.
           const pInfo = (personas.list || []).find(x => x.id === d.persona);
           const lbl = pInfo ? pInfo.label : d.persona;
           loadBranch(agent);
-          addNote(`已切换到「${lbl}」模式 · 历史已清空,模式立即生效`);
+          addNote(`已切换到「${lbl}」模式 · 已开启新分支，模式立即生效`);
         }
+      }
+      break;
+    case 'ready_changed':
+      // Backend told us the agent went up or down. Update our cache so
+      // the next tab switch / send triggers a fresh start-agent IPC.
+      ready[d.agent] = !!d.ready;
+      if (d.agent === agent && !d.ready) {
+        setStatus('starting');
       }
       break;
   }
@@ -1127,10 +1216,11 @@ document.getElementById('new-btn').addEventListener('click', async () => {
 
 // Window controls
 // × close: hide chat window. First time, educate user that 灵珑 stays in tray.
-document.getElementById('win-close').addEventListener('click', () => {
-  const educated = localStorage.getItem('close-educated');
+document.getElementById('win-close').addEventListener('click', async () => {
+  let educated = null;
+  try { educated = await window.robot.getFlag('close-educated'); } catch (_) {}
   if (!educated) {
-    localStorage.setItem('close-educated', '1');
+    try { window.robot.setFlag('close-educated', true); } catch (_) {}
     showToastInfo('灵珑仍驻留在系统托盘 · 按 Ctrl+Shift+Space 可随时唤起', 2800);
     setTimeout(() => window.robot.hideChat(), 2800);
   } else {
@@ -1219,10 +1309,17 @@ document.addEventListener('drop', e => {
   dropOverlay.classList.remove('on');
   const files = Array.from(e.dataTransfer?.files || []);
   if (!files.length) return;
-  const paths = files.map(f => f.path).filter(Boolean);
+  // Use the preload bridge: webUtils.getPathForFile (Electron 32+) with a
+  // File.path fallback for older Electron. Either way we never run native
+  // code in the renderer.
+  const paths = files
+    .map(f => (window.robot.getFilePath ? window.robot.getFilePath(f) : f.path))
+    .filter(Boolean);
   if (!paths.length) return;
-  // Insert as @path tokens, separated by space
-  const insert = paths.map(p => `@${p}`).join(' ');
+  // Quote paths containing whitespace so downstream agents see one token.
+  // We use double-quotes which work on both posix and windows shells.
+  const quote = (p) => /\s/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p;
+  const insert = paths.map(p => `@${quote(p)}`).join(' ');
   const cur = inputEl.value;
   const prefix = cur && !cur.endsWith(' ') ? cur + ' ' : cur;
   inputEl.value = prefix + insert + ' ';

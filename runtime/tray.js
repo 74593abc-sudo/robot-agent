@@ -58,6 +58,11 @@ function createTray(callbacks) {
     } else if (fs.existsSync(icoPath)) {
       icon = nativeImage.createFromPath(icoPath).resize({ width: 16, height: 16 });
     } else {
+      // Asset files missing (broken install / dev fork). The SVG fallback
+      // works on modern Windows but may not render on older Tray APIs;
+      // log loudly so the issue surfaces.
+      console.error('[tray] icon assets missing — falling back to inline SVG. ' +
+                    'Expected: ' + iconPath + ' or ' + icoPath);
       icon = nativeImage.createFromDataURL('data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="7" fill="#D4A847" stroke="#8B6914" stroke-width="1"/></svg>').toString('base64'));
     }
     tray = new Tray(icon);

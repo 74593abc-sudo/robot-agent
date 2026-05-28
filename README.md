@@ -97,7 +97,7 @@ robot-agent/
 ├── package.json                 # 项目配置 + electron-builder 配置
 │
 ├── renderer/                    # 渲染进程 HTML 文件
-│   ├── robot.html               # 浮动宠物窗口（150×180px，透明）
+│   ├── robot.html               # 浮动宠物窗口（135×162px，透明）
 │   ├── chat.html                # 聊天界面（390×570px）
 │   ├── bubble.html              # 通知气泡（300×140px，透明）
 │   └── showcase.html            # 设计稿展示页（960×720px）
@@ -169,7 +169,7 @@ robot-agent/
 
 ### 机器人角色窗口（robot.html）
 
-**尺寸**：150 × 180 px，透明无边框，始终置顶。
+**尺寸**：135 × 162 px，透明无边框，始终置顶。
 
 **SVG 角色结构**（viewBox `0 0 130 168`）：
 
@@ -329,7 +329,7 @@ claude -p --input-format=stream-json --output-format=stream-json \
 所有 Agent 的输出通过统一的 `AgentEvent` 事件流传递到聊天窗口：
 
 ```
-token → queueToken → 16ms flush → emitEvent → chatWindow.webContents.send('agent-event')
+token → queueToken → 16ms flush → emitEvent → safeSend(chatWindow, 'agent-event')
 ```
 
 事件类型：`token`、`tool_start`、`tool_end`、`state`、`done`、`error`、`user_node`、`fork`、`persona`
@@ -458,7 +458,7 @@ token → queueToken → 16ms flush → emitEvent → chatWindow.webContents.sen
 │                                             │
 │  main.js                                    │
 │  ├── BrowserWindow 管理                     │
-│  │   ├── robotWindow (150×180, 透明)        │
+│  │   ├── robotWindow (135×162, 透明)        │
 │  │   ├── chatWindow (390×570)               │
 │  │   └── bubbleWindow (300×140, 透明)       │
 │  ├── IPC 处理                               │
@@ -532,7 +532,7 @@ tokenBuf[agent] += text
   ↓
 flushTokens → emitEvent({ type: 'token', agent, text })
   ↓
-chatWindow.webContents.send('agent-event')
+safeSend(chatWindow, 'agent-event', ev)   // guards isDestroyed()
 ```
 
 ### 数据存储
@@ -616,8 +616,8 @@ npm run build:win
 
 | 常量 | 值 | 文件 | 说明 |
 |------|-----|------|------|
-| `ROBOT_W` | 150 | main.js | 机器人窗口宽度 (px) |
-| `ROBOT_H` | 180 | main.js | 机器人窗口高度 (px) |
+| `ROBOT_W` | 135 | runtime/windows.js | 机器人窗口宽度 (px) |
+| `ROBOT_H` | 162 | runtime/windows.js | 机器人窗口高度 (px) |
 | `FLUSH_MS` | 16 | main.js | Token flush 间隔 (ms) |
 | `TOKEN_BUF_MAX` | 32768 | main.js | Token buffer 上限 (bytes) |
 | `PEEK_VISIBLE` | 110 | main.js | 偷看时可见宽度 (px) |
@@ -625,7 +625,7 @@ npm run build:win
 | `MAX_FRAMES` | 360 | main.js | 甩飞物理最大帧数 (~6s) |
 | `LOOKUP_TIMEOUT_MS` | 3000 | agentCheck.js | PATH 检测超时 (ms) |
 | `CODE_BLOCK_MAX` | 200 | chat.html | Markdown 代码块缓存上限 |
-| `W` / `H` | 150 / 180 | robot.html | 渲染进程窗口尺寸 |
+| `W` / `H` | 135 / 162 | robot.html | 渲染进程窗口尺寸 |
 | `FLOAT_DUR` | 各状态不同 | robot.html | 呼吸动画时长映射 |
 
 ### electron-store 配置
@@ -768,4 +768,6 @@ newMode: {
 
 ## 十一、许可证
 
-项目中未包含 LICENSE 文件。所有权利保留。
+本项目采用 [GNU AGPL-3.0](LICENSE) 许可证。
+
+任何分发、修改、或通过网络提供本软件服务的行为，须遵守 AGPL-3.0 的条款，包括但不限于公开衍生作品的源代码。
