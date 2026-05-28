@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>灵珑 · 新手引导</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'HarmonyOS Sans','PingFang SC','Microsoft YaHei',sans-serif;background:#0d0c0a;color:#e8e4dc;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+
+:root{
+  --gold:#D4A847;
+  --gold-soft:rgba(212,168,71,.5);
+  --bg:#0d0c0a;
+  --bg2:#14120d;
+  --text:#e8e4dc;
+  --text-dim:#8a8578;
+}
+
+#container{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 30px;text-align:center}
+.step{display:none;flex-direction:column;align-items:center;gap:20px;max-width:320px;animation:fadeIn .4s ease}
+.step.active{display:flex}
+@keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+
+.icon{font-size:48px;margin-bottom:8px}
+.title{font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px}
+.desc{font-size:13px;color:var(--text-dim);line-height:1.6}
+.key{display:inline-block;background:var(--bg2);border:1px solid rgba(255,255,255,.15);padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text);margin:0 2px;font-family:monospace}
+
+#dots{display:flex;gap:8px;padding:20px}
+.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.15);transition:all .3s}
+.dot.active{background:var(--gold);box-shadow:0 0 8px var(--gold-soft)}
+
+#bottom{padding:20px 30px 30px;display:flex;justify-content:space-between;align-items:center}
+.btn{padding:10px 24px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn.primary{background:var(--gold);color:#0a0a08}
+.btn.primary:hover{filter:brightness(1.1);transform:scale(1.02)}
+.btn.secondary{background:transparent;color:var(--text-dim);border:1px solid rgba(255,255,255,.1)}
+.btn.secondary:hover{color:var(--text);border-color:rgba(255,255,255,.2)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+#skip{position:absolute;top:16px;right:20px;font-size:12px;color:var(--text-dim);cursor:pointer;border:none;background:none}
+#skip:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<button id="skip">跳过</button>
+
+<div id="container">
+  <div class="step active" data-step="0">
+    <div class="icon">👋</div>
+    <div class="title">欢迎使用灵珑</div>
+    <div class="desc">灵珑是一只桌面上的 AI 伙伴，她可以陪你聊天、写代码、回答问题。<br>让我们花 1 分钟了解她的核心功能。</div>
+  </div>
+
+  <div class="step" data-step="1">
+    <div class="icon">🖱️</div>
+    <div class="title">拖拽与甩飞</div>
+    <div class="desc">按住灵珑拖动可以改变位置。<br>快速甩出去她会飞出去再弹回来！<br>拖到屏幕边缘她会悄悄探出头。</div>
+  </div>
+
+  <div class="step" data-step="2">
+    <div class="icon">⌨️</div>
+    <div class="title">快捷键</div>
+    <div class="desc"><span class="key">Ctrl+Shift+Space</span> 唤起/隐藏聊天窗口<br><span class="key">Ctrl+Shift+R</span> 召回灵珑到右下角<br><span class="key">Ctrl+F</span> 搜索对话历史</div>
+  </div>
+
+  <div class="step" data-step="3">
+    <div class="icon">🎭</div>
+    <div class="title">Persona 模式</div>
+    <div class="desc">点击 Persona 栏可以切换灵珑的工作模式：<br><b>默认</b> - 通用助手<br><b>代码</b> - 专注编程<br><b>翻译</b> - 多语言翻译<br><b>创意</b> - 头脑风暴</div>
+  </div>
+
+  <div class="step" data-step="4">
+    <div class="icon">🌿</div>
+    <div class="title">对话分叉</div>
+    <div class="desc">点击消息旁的「分叉」按钮可以从该点创建新分支。<br>就像 Git 一样，你可以从任意对话节点开始新的探索。</div>
+  </div>
+</div>
+
+<div id="dots">
+  <div class="dot active"></div>
+  <div class="dot"></div>
+  <div class="dot"></div>
+  <div class="dot"></div>
+  <div class="dot"></div>
+</div>
+
+<div id="bottom">
+  <button class="btn secondary" id="prev" disabled>上一步</button>
+  <button class="btn primary" id="next">下一步</button>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+const steps = document.querySelectorAll('.step');
+const dots = document.querySelectorAll('.dot');
+const prevBtn = document.getElementById('prev');
+const nextBtn = document.getElementById('next');
+const skipBtn = document.getElementById('skip');
+let current = 0;
+
+function update() {
+  steps.forEach((s, i) => s.classList.toggle('active', i === current));
+  dots.forEach((d, i) => d.classList.toggle('active', i === current));
+  prevBtn.disabled = current === 0;
+  nextBtn.textContent = current === steps.length - 1 ? '开始使用' : '下一步';
+}
+
+nextBtn.addEventListener('click', () => {
+  if (current < steps.length - 1) {
+    current++;
+    update();
+  } else {
+    ipcRenderer.send('onboarding-done');
+  }
+});
+
+prevBtn.addEventListener('click', () => {
+  if (current > 0) { current--; update(); }
+});
+
+skipBtn.addEventListener('click', () => {
+  ipcRenderer.send('onboarding-done');
+});
+</script>
+</body>
+</html>

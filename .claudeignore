@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+*.log
+_electron.log
+_pack_*.png
+_*.ps1
+_verify/
+.git/
+out/

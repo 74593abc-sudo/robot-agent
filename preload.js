@@ -1,0 +1,73 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Prevent IPC listener stacking: remove previous listener on a channel
+// before adding a new one. This is safe because each renderer page
+// registers at most one listener per channel during init.
+function _safeOn(channel, handler) {
+  ipcRenderer.removeAllListeners(channel);
+  ipcRenderer.on(channel, handler);
+}
+
+contextBridge.exposeInMainWorld('robot', {
+  // Window
+  toggleChat:        ()       => ipcRenderer.send('toggle-chat'),
+  hideChat:          ()       => ipcRenderer.send('hide-chat'),
+  quitApp:           ()       => ipcRenderer.send('quit-app'),
+  notifyMoved:       ()       => ipcRenderer.send('robot-moved'),
+  moveWindow:        (x, y)   => ipcRenderer.send('move-window', { x, y }),
+  onSetState:        (cb)     => { _safeOn('set-state',            (_, s)    => cb(s)); },
+  onTriggerPulse:    (cb)     => { _safeOn('trigger-pulse',        ()        => cb()); },
+
+  // Chat
+  sendMessage:       (a, t)   => ipcRenderer.send('send-message',       { agent: a, text: t }),
+  stopAgent:         (a)      => ipcRenderer.send('stop-agent',         a),
+  startAgent:        (a)      => ipcRenderer.send('start-agent',        a),
+  getBranch:         (a)      => ipcRenderer.invoke('get-branch',       a),
+  newConversation:   (a)      => ipcRenderer.send('new-conversation',   a),
+  getSilent:         ()       => ipcRenderer.invoke('get-silent'),
+  toggleSilent:      ()       => ipcRenderer.send('toggle-silent'),
+
+  // Persona
+  getPersonas:       ()       => ipcRenderer.invoke('get-personas'),
+  setPersona:        (a, p)   => ipcRenderer.send('set-persona', { agent: a, persona: p }),
+
+  // Fork
+  forkFrom:          (a, id)  => ipcRenderer.send('fork-from', { agent: a, nodeId: id }),
+
+  // Unified event stream
+  onAgentEvent:      (cb)     => { _safeOn('agent-event',          (_, d) => cb(d)); },
+  onAgentReady:      (cb)     => { _safeOn('agent-ready',          (_, d) => cb(d)); },
+  onSilentChanged:   (cb)     => { _safeOn('silent-changed',       (_, d) => cb(d)); },
+
+  // Robot
+  onSetAccent:       (cb)     => { _safeOn('set-accent',           (_, d) => cb(d)); },
+  onCursorPoint:     (cb)     => { _safeOn('cursor-point',         (_, d) => cb(d)); },
+  onSetPeek:         (cb)     => { _safeOn('set-peek',             (_, d) => cb(d)); },
+  onSetMood:         (cb)     => { _safeOn('set-mood',             (_, d) => cb(d)); },
+  agentChanged:      (a)      => ipcRenderer.send('agent-changed',      a),
+  throwFrom:         (vx, vy) => ipcRenderer.send('throw-from',         { vx, vy }),
+
+  // Onboarding
+  onboardingDone:    ()       => ipcRenderer.send('onboarding-done'),
+
+  // First-launch / hero
+  getFirstLaunch:    ()       => ipcRenderer.invoke('get-first-launch'),
+
+  // Auto-start
+  getAutoStart:      ()       => ipcRenderer.invoke('get-auto-start'),
+  setAutoStart:      (v)      => ipcRenderer.send('set-auto-start', v),
+
+  // Agent status
+  getAgentStatus:    ()       => ipcRenderer.invoke('get-agent-status'),
+
+  // Theme
+  getTheme:          ()       => ipcRenderer.invoke('get-theme'),
+  setTheme:          (t)      => ipcRenderer.send('set-theme', t),
+  onThemeChanged:    (cb)     => { _safeOn('theme-changed',          (_, t) => cb(t)); },
+
+  // Bubble window
+  onBubbleShow:      (cb)     => { _safeOn('bubble-show',          (_, d) => cb(d)); },
+  onBubbleHide:      (cb)     => { _safeOn('bubble-hide',          ()    => cb()); },
+  bubbleClick:       ()       => ipcRenderer.send('bubble-click'),
+  bubbleDismiss:     ()       => ipcRenderer.send('bubble-dismiss'),
+});
