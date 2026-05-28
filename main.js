@@ -40,7 +40,7 @@ function startCursorTracking() {
     if (Math.abs(ix - cx) > TRACK_RADIUS || Math.abs(iy - cy) > TRACK_RADIUS) return;
     lastSent = { x: ix, y: iy };
     safeSend(rw, 'cursor-point', { x: ix, y: iy });
-  }, 80);
+  }, 100);
 }
 
 function recallRobot() {

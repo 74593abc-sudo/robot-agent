@@ -42,4 +42,4 @@ async function checkAgents() {
   return Object.fromEntries(entries);
 }
 
-module.exports = { checkAgents, AGENT_BINARIES };
+module.exports = { checkAgents, AGENT_BINARIES }; // AGENT_BINARIES used by tests only

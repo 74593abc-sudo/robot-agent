@@ -239,5 +239,5 @@ async function runAgentCheckOnStartup(store, { force = false } = {}) {
 }
 
 module.exports = {
-  createTray, updateTrayMenu, getTray, buildTrayMenu, runAgentCheckOnStartup,
+  createTray, updateTrayMenu, runAgentCheckOnStartup,
 };

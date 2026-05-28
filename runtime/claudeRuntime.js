@@ -311,4 +311,4 @@ class ClaudeRuntime {
   }
 }
 
-module.exports = { ClaudeRuntime, resolveAgentBinary, clearAgentBinaryCache };
+module.exports = { ClaudeRuntime, resolveAgentBinary, clearAgentBinaryCache }; // clearAgentBinaryCache used by tests only

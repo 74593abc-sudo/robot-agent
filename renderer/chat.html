@@ -292,8 +292,8 @@
   .tool-chip.running .thuman::after { content:' …'; color:var(--warn); }
   .tool-chip.error { border-left-color:var(--err); }
   .tool-chip.error .thuman { color:#ff9a8c; }
-  .tool-chip:hover { background:#1c1810; border-color:var(--gold-dim); }
-  .tool-detail { margin-top:4px; padding:7px 11px; background:#0d0b07; border:1px solid var(--border); border-radius:6px; font-size:11px; font-family:'Cascadia Code',monospace; white-space:pre-wrap; word-break:break-word; color:var(--text-dim); max-height:200px; overflow-y:auto; display:none; }
+  .tool-chip:hover { background:var(--bg3); border-color:var(--gold-dim); }
+  .tool-detail { margin-top:4px; padding:7px 11px; background:var(--code-bg); border:1px solid var(--border); border-radius:6px; font-size:11px; font-family:'Cascadia Code',monospace; white-space:pre-wrap; word-break:break-word; color:var(--text-dim); max-height:200px; overflow-y:auto; display:none; }
   .tool-detail.on { display:block; }
 
   .streaming::after { content:'▋'; color:var(--accent); animation:caret 1s steps(1) infinite; margin-left:1px; opacity:.7; }
@@ -556,21 +556,22 @@ function renderMarkdown(text) {
   const lines = text.split('\n');
   const out = []; let inUl = false, inOl = false, inBq = false;
   for (const ln of lines) {
-    if (/^\s*[-*] (.+)$/.test(ln)) {
+    let m;
+    if ((m = ln.match(/^\s*[-*] (.+)$/))) {
       if (!inUl) { out.push('<ul>'); inUl = true; }
       if (inOl) { out.push('</ol>'); inOl = false; }
       if (inBq) { out.push('</blockquote>'); inBq = false; }
-      out.push(ln.replace(/^\s*[-*] (.+)$/, '<li>$1</li>'));
-    } else if (/^\s*\d+\. (.+)$/.test(ln)) {
+      out.push('<li>' + m[1] + '</li>');
+    } else if ((m = ln.match(/^\s*\d+\. (.+)$/))) {
       if (!inOl) { out.push('<ol>'); inOl = true; }
       if (inUl) { out.push('</ul>'); inUl = false; }
       if (inBq) { out.push('</blockquote>'); inBq = false; }
-      out.push(ln.replace(/^\s*\d+\. (.+)$/, '<li>$1</li>'));
-    } else if (/^>\s?(.*)$/.test(ln)) {
+      out.push('<li>' + m[1] + '</li>');
+    } else if ((m = ln.match(/^>\s?(.*)$/))) {
       if (!inBq) { out.push('<blockquote>'); inBq = true; }
       if (inUl) { out.push('</ul>'); inUl = false; }
       if (inOl) { out.push('</ol>'); inOl = false; }
-      out.push(ln.replace(/^>\s?/, ''));
+      out.push(m[1]);
     } else {
       if (inUl) { out.push('</ul>'); inUl = false; }
       if (inOl) { out.push('</ol>'); inOl = false; }
