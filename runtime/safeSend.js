@@ -8,8 +8,7 @@
 //   which catches `null` but not `isDestroyed()` races. This module
 //   centralises the guard.
 //
-// All callers should prefer safeSend / safeInvoke over touching webContents
-// directly.
+// All callers should prefer safeSend over touching webContents directly.
 
 /**
  * Returns true when the BrowserWindow handle still has a usable webContents.
