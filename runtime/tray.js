@@ -205,10 +205,13 @@ function updateTrayMenu(callbacks) {
 
 function getTray() { return tray; }
 
-async function runAgentCheckOnStartup(store, { force = false } = {}) {
+async function runAgentCheckOnStartup(store, { force = false, onDone } = {}) {
   const result = await checkAgents();
   lastAgentCheck = result;
   const missing = Object.keys(AGENT_DISPLAY).filter(a => !result[a]);
+
+  // Rebuild tray menu so labels reflect fresh detection results
+  if (typeof onDone === 'function') onDone();
 
   if (missing.length === 0) {
     if (force) {

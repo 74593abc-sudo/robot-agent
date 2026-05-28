@@ -15,6 +15,7 @@ const isFirstLaunch = !store.get('hasLaunched', false);
 if (isFirstLaunch) store.set('hasLaunched', true);
 
 let cursorTimer = null;
+let _trayCallbacks = null;
 
 function startCursorTracking() {
   if (cursorTimer) clearInterval(cursorTimer);
@@ -81,7 +82,9 @@ function toggleChat() {
 }
 
 function forceCheck() {
-  runAgentCheckOnStartup(store, { force: true }).catch(() => {});
+  runAgentCheckOnStartup(store, { force: true, onDone: () => {
+    if (_trayCallbacks) updateTrayMenu(_trayCallbacks);
+  }}).catch(() => {});
 }
 
 function openOnboarding() {
@@ -199,6 +202,7 @@ app.whenReady().then(() => {
     forceCheck,
     openOnboarding,
   };
+  _trayCallbacks = trayCallbacks;
   setTrayCallbacks(trayCallbacks);
 
   createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow);
