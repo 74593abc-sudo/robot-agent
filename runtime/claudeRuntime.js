@@ -100,14 +100,15 @@ class ClaudeRuntime {
       TERM: 'dumb'
     };
 
-    // shell:false avoids any chance of metacharacter injection through args.
-    // On Windows, `claude` is typically a `.cmd`/`.ps1` shim that requires the
-    // shell to resolve — we look up the explicit binary path instead so that
-    // shell:false works the same on win32 as on posix.
+    // On Windows, `claude` is a `.cmd` shim that requires the shell to resolve.
+    // On posix we use shell:false to avoid metacharacter injection; on Windows
+    // we must use shell:true for .cmd files to work. Args are all hardcoded
+    // (no user input), so injection risk is nil.
     const cmd = resolveAgentBinary('claude');
+    const isWin = process.platform === 'win32';
     try {
       this.proc = spawn(cmd, args, {
-        shell: false,
+        shell: isWin,
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: this.cwd,
         env,

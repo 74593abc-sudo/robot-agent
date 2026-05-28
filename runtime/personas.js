@@ -23,16 +23,15 @@
 // — only the systemPrompt body changes. UI labels translate via the icon
 // + translated label table.
 
-let _locale = 'en';
+let _locale = 'zh';
 try {
   const { app } = require('electron');
   if (app && typeof app.getLocale === 'function') {
     const raw = (app.getLocale() || '').toLowerCase();
-    _locale = raw.startsWith('zh') ? 'zh' : 'en';
+    // Always use Chinese labels — 灵珑 is a Chinese product
+    _locale = 'zh';
   }
 } catch (_) {
-  // Outside Electron (e.g. unit tests) — default to Chinese to match
-  // historical behavior. Tests can override via setLocale().
   _locale = 'zh';
 }
 

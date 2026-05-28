@@ -239,7 +239,7 @@ function runPlainAgent(agentName, message) {
   const env = { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb' };
   let proc;
   try {
-    proc = spawn(cmd, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], cwd, env, windowsHide: true });
+    proc = spawn(cmd, args, { shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], cwd, env, windowsHide: true });
   } catch (err) {
     emitEvent({ type: 'error', agent: agentName, error: `启动失败: ${err.message}` });
     flashRobotError();

@@ -6,7 +6,7 @@
 <title>灵珑 · 新手引导</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'HarmonyOS Sans','PingFang SC','Microsoft YaHei',sans-serif;background:#0d0c0a;color:#e8e4dc;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+body{font-family:'HarmonyOS Sans SC','PingFang SC','Microsoft YaHei',sans-serif;background:#0d0c0a;color:#e8e4dc;overflow:hidden;height:100vh;display:flex;flex-direction:column}
 
 :root{
   --gold:#D4A847;
@@ -15,31 +15,43 @@ body{font-family:'HarmonyOS Sans','PingFang SC','Microsoft YaHei',sans-serif;bac
   --bg2:#14120d;
   --text:#e8e4dc;
   --text-dim:#8a8578;
+  --cyan:#74F6E8;
 }
 
-#container{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 30px;text-align:center}
-.step{display:none;flex-direction:column;align-items:center;gap:20px;max-width:320px;animation:fadeIn .4s ease}
+#container{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px 10px;text-align:center;overflow-y:auto}
+.step{display:none;flex-direction:column;align-items:center;gap:14px;max-width:340px;animation:fadeIn .4s ease}
 .step.active{display:flex}
-@keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 
-.icon{font-size:48px;margin-bottom:8px}
-.title{font-size:18px;font-weight:700;color:var(--gold);letter-spacing:1px}
-.desc{font-size:13px;color:var(--text-dim);line-height:1.6}
-.key{display:inline-block;background:var(--bg2);border:1px solid rgba(255,255,255,.15);padding:2px 8px;border-radius:5px;font-size:11px;color:var(--text);margin:0 2px;font-family:monospace}
+.icon{font-size:44px;margin-bottom:4px}
+.title{font-size:17px;font-weight:700;color:var(--gold);letter-spacing:1px}
+.desc{font-size:12.5px;color:var(--text-dim);line-height:1.7}
+.desc b{color:var(--text);font-weight:600}
+.key{display:inline-block;background:var(--bg2);border:1px solid rgba(255,255,255,.15);padding:1px 6px;border-radius:4px;font-size:10.5px;color:var(--text);margin:0 1px;font-family:monospace}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10.5px;font-weight:600;margin:0 2px}
+.tag.claude{background:rgba(217,119,87,.15);color:#D97757}
+.tag.hermes{background:rgba(243,112,33,.15);color:#F37021}
+.tag.openclaw{background:rgba(214,59,47,.15);color:#D63B2F}
+.tag.cyan{background:rgba(116,246,232,.12);color:var(--cyan)}
+.feature-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;text-align:left}
+.feature-item{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:8px 10px}
+.feature-item .fi-icon{font-size:16px;margin-bottom:2px}
+.feature-item .fi-label{font-size:11px;color:var(--text);font-weight:600}
+.feature-item .fi-desc{font-size:10px;color:var(--text-dim);line-height:1.4}
 
-#dots{display:flex;gap:8px;padding:20px}
-.dot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.15);transition:all .3s}
+#dots{display:flex;gap:7px;padding:16px}
+.dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.15);transition:all .3s}
 .dot.active{background:var(--gold);box-shadow:0 0 8px var(--gold-soft)}
 
-#bottom{padding:20px 30px 30px;display:flex;justify-content:space-between;align-items:center}
-.btn{padding:10px 24px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+#bottom{padding:10px 20px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+.btn{padding:9px 22px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
 .btn.primary{background:var(--gold);color:#0a0a08}
 .btn.primary:hover{filter:brightness(1.1);transform:scale(1.02)}
 .btn.secondary{background:transparent;color:var(--text-dim);border:1px solid rgba(255,255,255,.1)}
 .btn.secondary:hover{color:var(--text);border-color:rgba(255,255,255,.2)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 
-#skip{position:absolute;top:16px;right:20px;font-size:12px;color:var(--text-dim);cursor:pointer;border:none;background:none}
+#skip{position:absolute;top:14px;right:18px;font-size:12px;color:var(--text-dim);cursor:pointer;border:none;background:none}
 #skip:hover{color:var(--text)}
 </style>
 </head>
@@ -48,39 +60,165 @@ body{font-family:'HarmonyOS Sans','PingFang SC','Microsoft YaHei',sans-serif;bac
 <button id="skip">跳过</button>
 
 <div id="container">
+  <!-- Step 0: Welcome -->
   <div class="step active" data-step="0">
     <div class="icon">👋</div>
     <div class="title">欢迎使用灵珑</div>
-    <div class="desc">灵珑是一只桌面上的 AI 伙伴，她可以陪你聊天、写代码、回答问题。<br>让我们花 1 分钟了解她的核心功能。</div>
+    <div class="desc">灵珑是一只住在桌面上的 AI 小机器人，背后连接三个本地智能体，随时可以对话、写代码、回答问题。</div>
+    <div class="feature-grid">
+      <div class="feature-item">
+        <div class="fi-icon">🤖</div>
+        <div class="fi-label">三智能体</div>
+        <div class="fi-desc">Claude · Hermes · OpenClaw 一键切换</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🎨</div>
+        <div class="fi-label">东方夜色主题</div>
+        <div class="fi-desc">暗色 / 亮色随时切换</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🌿</div>
+        <div class="fi-label">对话分叉</div>
+        <div class="fi-desc">像 Git 一样从任意节点分支</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🎯</div>
+        <div class="fi-label">四种模式</div>
+        <div class="fi-desc">默认 / 编码 / 调研 / 运维</div>
+      </div>
+    </div>
   </div>
 
+  <!-- Step 1: Three Agents -->
   <div class="step" data-step="1">
-    <div class="icon">🖱️</div>
-    <div class="title">拖拽与甩飞</div>
-    <div class="desc">按住灵珑拖动可以改变位置。<br>快速甩出去她会飞出去再弹回来！<br>拖到屏幕边缘她会悄悄探出头。</div>
+    <div class="icon">🧠</div>
+    <div class="title">三个智能体</div>
+    <div class="desc">灵珑同时接入三个本地 AI，各有特色：</div>
+    <div style="display:flex;flex-direction:column;gap:7px;width:100%">
+      <div class="feature-item">
+        <div class="fi-label"><span class="tag claude">Claude</span> Anthropic 出品</div>
+        <div class="fi-desc">能理解整个项目结构，自主读写文件、执行命令、搜索代码、管理 Git。会话在进程间持续，上下文不丢失。</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-label"><span class="tag hermes">Hermes</span> Nous Research 出品</div>
+        <div class="fi-desc">自进化的通用智能体，支持技能插件、MCP 协议、定时任务、Slack/WhatsApp 集成。可对接任意 OpenAI 兼容接口。</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-label"><span class="tag openclaw">OpenClaw</span> 开源多通道网关</div>
+        <div class="fi-desc">一个 Agent 对接所有聊天平台：Telegram、Discord、飞书、微信等 20+ 渠道。本地运行，数据不出本机。</div>
+      </div>
+    </div>
+    <div class="desc" style="margin-top:2px">点击聊天窗口顶部的标签页切换智能体，各自独立维护对话历史。</div>
   </div>
 
+  <!-- Step 2: Interactions -->
   <div class="step" data-step="2">
-    <div class="icon">⌨️</div>
-    <div class="title">快捷键</div>
-    <div class="desc"><span class="key">Ctrl+Shift+Space</span> 唤起/隐藏聊天窗口<br><span class="key">Ctrl+Shift+R</span> 召回灵珑到右下角<br><span class="key">Ctrl+F</span> 搜索对话历史</div>
+    <div class="icon">🖱️</div>
+    <div class="title">拖拽与物理效果</div>
+    <div class="feature-grid">
+      <div class="feature-item">
+        <div class="fi-icon">✋</div>
+        <div class="fi-label">拖拽移动</div>
+        <div class="fi-desc">按住灵珑拖到任意位置</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">💨</div>
+        <div class="fi-label">甩飞弹跳</div>
+        <div class="fi-desc">快速甩出去，她会飞出去再弹回来</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">👀</div>
+        <div class="fi-label">眼睛追踪</div>
+        <div class="fi-desc">瞳孔跟随鼠标移动</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🧊</div>
+        <div class="fi-label">边缘吸附</div>
+        <div class="fi-desc">拖到屏幕边缘会悄悄探出头偷看</div>
+      </div>
+    </div>
+    <div class="desc">灵珑有丰富的表情状态：思考时齿轮转、说话时嘴巴动、5 分钟没人理会打哈欠。</div>
   </div>
 
+  <!-- Step 3: Shortcuts + Theme -->
   <div class="step" data-step="3">
-    <div class="icon">🎭</div>
-    <div class="title">工作模式</div>
-    <div class="desc">点击聊天窗口顶部的模式栏切换工作风格：<br><b>默认</b> · 通用助手<br><b>编码</b> · 代码与命令优先<br><b>调研</b> · 信息整理、对比、多角度<br><b>运维</b> · 关注稳定性与风险</div>
+    <div class="icon">⌨️</div>
+    <div class="title">快捷键与主题</div>
+    <div class="desc" style="text-align:left">
+      <div style="margin-bottom:8px">
+        <span class="key">Ctrl+Shift+Space</span> <span style="color:var(--text-dim)">唤起 / 隐藏聊天窗口</span>
+      </div>
+      <div style="margin-bottom:8px">
+        <span class="key">Ctrl+Shift+R</span> <span style="color:var(--text-dim)">召回灵珑到右下角</span>
+      </div>
+      <div style="margin-bottom:8px">
+        <span class="key">Ctrl+F</span> <span style="color:var(--text-dim)">搜索对话历史</span>
+      </div>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-item">
+        <div class="fi-icon">☀️</div>
+        <div class="fi-label">主题切换</div>
+        <div class="fi-desc">聊天窗口标题栏的 ☀/☾ 按钮，或通过托盘右键切换暗色 / 亮色</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-icon">🔕</div>
+        <div class="fi-label">静默模式</div>
+        <div class="fi-desc">开启后不弹气泡通知，适合开会、录屏时使用</div>
+      </div>
+    </div>
   </div>
 
+  <!-- Step 4: Work Modes -->
   <div class="step" data-step="4">
+    <div class="icon">🎭</div>
+    <div class="title">四种工作模式</div>
+    <div class="desc">聊天窗口顶部的模式栏，切换后 AI 的回答风格会变化：</div>
+    <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+      <div class="feature-item">
+        <div class="fi-label">◐ 默认</div>
+        <div class="fi-desc">不注入额外指令，AI 自由回答，适合日常对话</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-label">⌨ 编码</div>
+        <div class="fi-desc">代码优先、少废话，直接给可运行的命令和文件路径</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-label">🔎 调研</div>
+        <div class="fi-desc">信息整理、多角度对比、列出取舍，帮用户建立认知</div>
+      </div>
+      <div class="feature-item">
+        <div class="fi-label">⚙ 运维</div>
+        <div class="fi-desc">关注稳定性与风险，操作命令优先给 dry-run 安全形式</div>
+      </div>
+    </div>
+    <div class="desc">切换模式会开启新分支，之前的对话保留在历史中。</div>
+  </div>
+
+  <!-- Step 5: Fork + File -->
+  <div class="step" data-step="5">
     <div class="icon">🌿</div>
-    <div class="title">对话分叉</div>
-    <div class="desc">点击消息旁的「分叉」按钮可以从该点创建新分支。<br>就像 Git 一样，你可以从任意对话节点开始新的探索。</div>
+    <div class="title">对话分叉与文件引用</div>
+    <div class="desc" style="text-align:left">
+      <div style="margin-bottom:10px">
+        <b>对话分叉</b><br>
+        点击消息旁的「分叉」按钮，从该点创建新分支。就像 Git 的 branch，你可以从任意对话节点开始新的探索，旧分支随时可以切回。
+      </div>
+      <div style="margin-bottom:10px">
+        <b>文件拖入</b><br>
+        把文件直接拖进聊天窗口，自动插入 <span class="tag cyan">@文件路径</span> 引用，AI 就能读取并处理该文件。
+      </div>
+      <div>
+        <b>命令面板</b><br>
+        在输入框输入 <span class="key">/</span> 触发命令面板，可用 <span class="key">/new</span> 新建对话、<span class="key">/clear</span> 清空历史等。
+      </div>
+    </div>
   </div>
 </div>
 
 <div id="dots">
   <div class="dot active"></div>
+  <div class="dot"></div>
   <div class="dot"></div>
   <div class="dot"></div>
   <div class="dot"></div>

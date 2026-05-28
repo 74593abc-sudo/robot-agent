@@ -130,6 +130,13 @@
   #silent-badge:hover { color:var(--text); border-color:var(--gold-soft); }
   #silent-badge.on { color:var(--warn); border-color:var(--warn); background:rgba(240,168,35,.08); }
   #silent-badge .bdot { width:5px; height:5px; border-radius:50%; background:currentColor; opacity:.7; }
+  #theme-btn {
+    font-size:12px; color:var(--text-dim); padding:2px 7px;
+    border:1px solid var(--border); border-radius:9px;
+    -webkit-app-region:no-drag; cursor:pointer;
+    transition:all .15s; line-height:1;
+  }
+  #theme-btn:hover { color:var(--text); border-color:var(--gold-soft); }
 
   /* ── Tabs ──────────────────────────────────────────────── */
   #tabs { display:flex; padding:8px 10px 0; gap:6px; background:var(--bg2); flex-shrink:0; }
@@ -386,6 +393,7 @@
   </div>
   <div id="win-title"><span class="accent">灵</span> 珑 · LingLong</div>
   <div id="silent-badge" title="点击切换静默模式"><span class="bdot"></span><span class="blbl">静默</span></div>
+  <div id="theme-btn" title="切换主题">☀</div>
 </div>
 
 <div id="search-overlay">
@@ -1414,6 +1422,7 @@ document.addEventListener('keydown', e => {
   const theme = await window.robot.getTheme();
   if (theme === 'light') document.documentElement.classList.add('theme-light');
   else document.documentElement.classList.remove('theme-light');
+  document.getElementById('theme-btn').textContent = theme === 'light' ? '☾' : '☀';
 
   personas = await window.robot.getPersonas();
   setAccent(agent);
@@ -1440,6 +1449,14 @@ document.addEventListener('keydown', e => {
   window.robot.onThemeChanged((theme) => {
     if (theme === 'light') document.documentElement.classList.add('theme-light');
     else document.documentElement.classList.remove('theme-light');
+    document.getElementById('theme-btn').textContent = theme === 'light' ? '☾' : '☀';
+  });
+
+  // Theme toggle button
+  document.getElementById('theme-btn').addEventListener('click', async () => {
+    const cur = await window.robot.getTheme();
+    const next = cur === 'dark' ? 'light' : 'dark';
+    window.robot.setTheme(next);
   });
 })();
 </script>

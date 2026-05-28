@@ -92,7 +92,7 @@ function openOnboarding() {
   }
   const { BrowserWindow } = require('electron');
   const onbWin = new BrowserWindow({
-    width: 400, height: 520, frame: false, transparent: false,
+    width: 400, height: 560, frame: false, transparent: false,
     resizable: false, title: '灵珑 · 新手引导', alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

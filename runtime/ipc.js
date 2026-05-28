@@ -188,6 +188,8 @@ function register() {
   _on('set-theme', (_, theme) => {
     if (theme !== 'dark' && theme !== 'light') return;
     store.set('theme', theme);
+    safeSend(getChatWindow(), 'theme-changed', theme);
+    if (trayCallbacks) updateTrayMenu(trayCallbacks);
   });
 
   // Generic UI flag store. Limited to a fixed key prefix so the renderer
