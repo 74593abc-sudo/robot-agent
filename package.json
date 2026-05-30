@@ -44,6 +44,7 @@
       "!scripts/**",
       "!__tests__/**",
       "!docs/**",
+      "!renderer/showcase.html",
       "!*.md",
       "!audit-reports/**",
       "!backups/**",

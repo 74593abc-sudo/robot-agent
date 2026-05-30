@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('robot', {
 
   // Onboarding
   onboardingDone:    ()       => ipcRenderer.send('onboarding-done'),
+  openOnboarding:    ()       => ipcRenderer.send('open-onboarding'),
 
   // First-launch / hero
   getFirstLaunch:    ()       => ipcRenderer.invoke('get-first-launch'),
@@ -95,4 +96,7 @@ contextBridge.exposeInMainWorld('robot', {
   // Drag-drop helper: resolve a File handle to its disk path.
   // Renderer-side use: window.robot.getFilePath(file) returns '' if unknown.
   getFilePath:       (file)   => _getFilePath(file),
+
+  // Version for capability negotiation
+  version:           '1.1.0',
 });

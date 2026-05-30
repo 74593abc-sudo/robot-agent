@@ -246,6 +246,7 @@ function startPhysicsTimers() {
 function clearPhysicsTimers() {
   if (slideBackTimer) { clearInterval(slideBackTimer); slideBackTimer = null; }
   if (moodTimer) { clearInterval(moodTimer); moodTimer = null; }
+  if (smoothMoveTimer) { clearTimeout(smoothMoveTimer); smoothMoveTimer = 0; }
 }
 
 module.exports = {

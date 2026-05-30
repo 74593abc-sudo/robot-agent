@@ -42,6 +42,14 @@ function register() {
     noteInteraction();
     if (isThrownLock()) return;
     clampRobotSize();
+    // Persist robot position
+    try {
+      const rw = getRobotWindow();
+      if (rw) {
+        const [x, y] = rw.getPosition();
+        store.set('robotPosition', { x, y });
+      }
+    } catch (_) {}
     if (getIsChatVisible()) positionChatWindow();
     const bw = getBubbleWindow();
     if (bw && bw.isVisible()) positionBubbleWindow();
@@ -77,6 +85,14 @@ function register() {
     throwWindow(vx, vy, () => {
       setRobotState(getIsChatVisible() ? 'active' : 'idle');
       clampRobotSize();
+      // Persist robot position after throw settles
+      try {
+        const rw = getRobotWindow();
+        if (rw) {
+          const [x, y] = rw.getPosition();
+          store.set('robotPosition', { x, y });
+        }
+      } catch (_) {}
       if (getIsChatVisible()) positionChatWindow();
       const bw = getBubbleWindow();
       if (bw && bw.isVisible()) positionBubbleWindow();

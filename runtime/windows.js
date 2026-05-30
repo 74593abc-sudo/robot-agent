@@ -16,7 +16,7 @@ function getBubbleWindow() { return bubbleWindow; }
 function getIsChatVisible() { return isChatVisible; }
 function setIsChatVisible(v) { isChatVisible = v; }
 
-function createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow) {
+function createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow, savedPos) {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   robotWindow = new BrowserWindow({
     width: ROBOT_W, height: ROBOT_H, transparent: true, frame: false,
@@ -24,9 +24,6 @@ function createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow) {
     webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   robotWindow.loadFile(path.join(__dirname, '..', 'renderer', 'robot.html'));
-  // Rest position: bottom-right corner, flush with work area bottom so the
-  // base sits on the taskbar. Right edge keeps 16px gap from screen edge
-  // so the robot doesn't look glued to the wall.
   const restX = width - ROBOT_W - 16, restY = height - ROBOT_H;
   if (isFirstLaunch) {
     const cx = Math.round(width / 2 - ROBOT_W / 2);
@@ -38,6 +35,8 @@ function createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow) {
       }, 1400);
       setTimeout(() => smoothMoveWindow(restX, restY, 900), 3200);
     });
+  } else if (savedPos) {
+    robotWindow.setBounds({ x: savedPos.x, y: savedPos.y, width: ROBOT_W, height: ROBOT_H });
   } else {
     robotWindow.setBounds({ x: restX, y: restY, width: ROBOT_W, height: ROBOT_H });
   }

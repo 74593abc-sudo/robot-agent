@@ -36,6 +36,7 @@ function init(storeInstance, chatWindowGetter) {
   store = storeInstance;
   graph = new SessionGraph(store);
   chatWindow = chatWindowGetter;
+  silentMode = store.get('silentMode', false);
   currentPersona.claude = store.get('persona.claude', 'default');
   currentPersona.hermes = store.get('persona.hermes', 'default');
   currentPersona.openclaw = store.get('persona.openclaw', 'default');
@@ -204,17 +205,20 @@ function killProcessTree(proc) {
   if (!pid) return;
   if (process.platform === 'win32') {
     try {
-      // detached + ignore stdio so this taskkill doesn't keep us alive
       const k = spawn('taskkill', ['/F', '/T', '/PID', String(pid)], {
         windowsHide: true, stdio: 'ignore', detached: true,
       });
       try { k.unref(); } catch (_) {}
-    } catch (_) {}
+    } catch (err) { console.error('[agents] taskkill failed:', err.message); }
     // Also send SIGTERM as a fallback in case taskkill fails to launch.
     try { proc.kill(); } catch (_) {}
   } else {
     try { proc.kill(); } catch (_) {}
   }
+}
+
+function killAgent(agentName) {
+  killAgent(agentName);
 }
 
 function runPlainAgent(agentName, message) {
@@ -226,10 +230,7 @@ function runPlainAgent(agentName, message) {
   // even when the CLI is shipped as a `.cmd` shim.
   const cmd = resolveAgentBinary(cmdName);
 
-  if (runningProc[agentName]) {
-    killProcessTree(runningProc[agentName]);
-    runningProc[agentName] = null;
-  }
+  killAgent(agentName);
   tokenBuf[agentName] = '';
   if (tokenTimer[agentName]) { clearTimeout(tokenTimer[agentName]); tokenTimer[agentName] = null; }
 
@@ -239,7 +240,9 @@ function runPlainAgent(agentName, message) {
   const env = { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', TERM: 'dumb' };
   let proc;
   try {
-    proc = spawn(cmd, args, { shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'], cwd, env, windowsHide: true });
+    // shell:false to prevent command injection — args are user text, not
+    // shell-safe. resolveAgentBinary() already resolves .cmd shims on Windows.
+    proc = spawn(cmd, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], cwd, env, windowsHide: true });
   } catch (err) {
     emitEvent({ type: 'error', agent: agentName, error: `启动失败: ${err.message}` });
     flashRobotError();
@@ -248,6 +251,7 @@ function runPlainAgent(agentName, message) {
   runningProc[agentName] = proc;
   conversationStarted[agentName] = true;
 
+  const myPid = proc.pid;
   let collected = '';
   // Track stderr separately so we can surface it in the exit message when
   // the process fails. Capped to keep memory bounded.
@@ -290,6 +294,8 @@ function runPlainAgent(agentName, message) {
     if (!stdoutTruncated) queueToken(agentName, chunk);
   });
   proc.on('close', code => {
+    // Ignore close from a stale process (killed by next message before reply).
+    if (runningProc[agentName] && runningProc[agentName].pid !== myPid) return;
     runningProc[agentName] = null;
     flushTokens(agentName);
     const text = collected.trim();
@@ -352,8 +358,7 @@ function stopAgent(agentName) {
   if (agentName === 'claude') {
     if (claudeRT) { claudeRT.interrupt(); }
   } else {
-    const p = runningProc[agentName];
-    if (p) { killProcessTree(p); runningProc[agentName] = null; }
+    killAgent(agentName);
   }
   inflight[agentName] = null;
   emitEvent({ type: 'error', agent: agentName, error: '已停止生成' });
@@ -428,7 +433,8 @@ function setSilent(v) { silentMode = v; }
 
 function cleanup() {
   if (claudeRT) { try { claudeRT.stop(); } catch (_) {} }
-  Object.values(runningProc).forEach(p => { if (p) killProcessTree(p); });
+  killAgent('hermes');
+  killAgent('openclaw');
 }
 
 module.exports = {

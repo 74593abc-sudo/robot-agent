@@ -457,10 +457,12 @@ const COMMANDS = [
   { cmd:'/new',      desc:'清空对话开始新会话', special:'new' },
   { cmd:'/stop',     desc:'停止当前生成', special:'stop' },
   { cmd:'/fork',     desc:'从最近一条 AI 回复分叉新分支', special:'fork-last' },
+  { cmd:'/guide',    desc:'重新打开新手引导', special:'guide' },
 ];
 
 let agent = 'claude';
 let ready = { claude:false, openclaw:false, hermes:false };
+const startupTimers = { claude:null, openclaw:null, hermes:null };
 let waiting = false;
 let personas = { list: [], current: {} };
 
@@ -535,7 +537,14 @@ function renderMarkdown(text) {
   const blocks = [];
   // 1. Pull code blocks out FIRST so their bodies (which may contain raw <,>,&)
   //    aren't damaged by the global escape pass that follows.
+  // Match closed code fences first, then handle unclosed ones (streaming mid-response).
   text = text.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    blocks.push({ lang: lang || 'text', code: code.replace(/\n$/, '') });
+    return ` CB${blocks.length - 1} `;
+  });
+  // Handle unclosed code fences (no closing ```)
+  text = text.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*)$/, (_, lang, code) => {
+    if (blocks.some(b => b.code === code.replace(/\n$/, ''))) return _; // already captured
     blocks.push({ lang: lang || 'text', code: code.replace(/\n$/, '') });
     return ` CB${blocks.length - 1} `;
   });
@@ -830,9 +839,9 @@ function showToastInfo(msg, durationMs = 2200) {
     el = document.createElement('div');
     el.id = 'toast-info';
     el.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);' +
-      'background:rgba(30,28,22,.96);color:#ece4d0;border:1px solid var(--gold-soft);' +
+      'background:var(--bg2);color:var(--text);border:1px solid var(--gold-soft);' +
       'border-radius:10px;padding:10px 18px;font-size:12.5px;z-index:1000;' +
-      'box-shadow:0 8px 24px rgba(0,0,0,.55);opacity:0;transition:opacity .2s;' +
+      'box-shadow:0 8px 24px var(--shadow-strong);opacity:0;transition:opacity .2s;' +
       'pointer-events:none;max-width:80%;text-align:center';
     document.body.appendChild(el);
   }
@@ -1025,7 +1034,18 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   refreshPersonaPill();
   loadBranch(agent);
   if (window.robot.agentChanged) window.robot.agentChanged(agent);
-  if (!ready[agent]) { setStatus('starting'); window.robot.startAgent(agent); }
+  if (!ready[agent]) {
+    setStatus('starting');
+    window.robot.startAgent(agent);
+    // Timeout: if agent doesn't respond in 15s, show error
+    clearTimeout(startupTimers[agent]);
+    startupTimers[agent] = setTimeout(() => {
+      if (!ready[agent] && tabState[agent] !== 'thinking' && tabState[agent] !== 'working') {
+        setStatus('error');
+        addNote(`${LABELS[agent]} 启动超时，请检查智能体是否已安装`);
+      }
+    }, 15000);
+  }
   else if (tabState[agent] === 'thinking') setStatus('thinking');
   else if (tabState[agent] === 'working') setStatus('working');
   else setStatus('ready');
@@ -1210,6 +1230,7 @@ window.robot.onAgentEvent(d => {
 
 window.robot.onAgentReady(d => {
   ready[d.agent] = true;
+  clearTimeout(startupTimers[d.agent]);
   if (d.agent === agent) {
     setStatus('ready');
     if (welcome?.parentNode) welcome.textContent = `${LABELS[d.agent]} 就绪，开始对话吧`;
@@ -1262,6 +1283,9 @@ async function applyCmd(c) {
     if (lastAiNodeId && agent === 'claude') {
       if (await showToast('从最近一条 AI 回复分叉？')) window.robot.forkFrom(agent, lastAiNodeId);
     } else addNote('没有可分叉的 AI 回复（仅 Claude 支持）');
+    inputEl.value = '';
+  } else if (c.special === 'guide') {
+    if (window.robot.openOnboarding) window.robot.openOnboarding();
     inputEl.value = '';
   } else {
     const rest = inputEl.value.replace(/^\/\S*\s?/, '');
@@ -1403,6 +1427,15 @@ function applySearch(q) {
     else r.classList.add('hidden');
   });
   searchInfo.textContent = `${matched} 条 · ${totalHits} 处`;
+  // Scroll to first matched row
+  if (matched > 0) {
+    for (const r of rows) {
+      if (!r.classList.contains('hidden')) {
+        r.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        break;
+      }
+    }
+  }
 }
 searchInput.addEventListener('input', () => applySearch(searchInput.value.trim()));
 searchInput.addEventListener('keydown', e => { if (e.key === 'Escape') closeSearch(); });

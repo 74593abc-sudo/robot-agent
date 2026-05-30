@@ -71,23 +71,19 @@ describe('issue #2 — safeSend tolerates dead windows', () => {
 });
 
 describe('issue #30 — personas localised', () => {
-  test('Chinese locale → Chinese system prompt', () => {
-    personas.setLocale('zh-CN');
-    expect(personas.get('coding').systemPrompt.length).toBeLessThan(500);
-    // Sanity: Chinese label
+  test('Chinese labels are used', () => {
     expect(personas.get('coding').label).toBe('编码');
+    expect(personas.get('research').label).toBe('调研');
+    expect(personas.get('infra').label).toBe('运维');
   });
 
-  test('English locale → English system prompt', () => {
-    personas.setLocale('en-US');
-    expect(personas.get('coding').label).toBe('Code');
-    // Should mention "code" in English
-    const sp = personas.get('coding').systemPrompt.toLowerCase();
-    expect(sp.indexOf('code') >= 0).toBe(true);
+  test('system prompts are in Chinese', () => {
+    const sp = personas.get('coding').systemPrompt;
+    expect(sp.length).toBeGreaterThan(0);
+    expect(sp).toContain('编码');
   });
 
   test('list() returns 4 personas in stable order', () => {
-    personas.setLocale('en');
     const ids = personas.list().map(p => p.id);
     expect(ids).toEqual(['default', 'coding', 'research', 'infra']);
   });

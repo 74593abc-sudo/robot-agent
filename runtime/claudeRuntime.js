@@ -65,6 +65,7 @@ class ClaudeRuntime {
     this.onEvent        = opts.onEvent || (() => {});
 
     this.proc           = null;
+    this._spawnPid      = 0;         // PID of the current proc (for exit-handler matching)
     this.buf            = '';        // stdout line buffer
     this.queue          = [];        // queued sends while busy
     this.busy           = false;     // mid-turn
@@ -118,6 +119,7 @@ class ClaudeRuntime {
       this.onEvent({ type: 'error', error: `启动失败: ${err.message}` });
       return;
     }
+    this._spawnPid = this.proc.pid;
 
     this.proc.stdout.on('data', (chunk) => this._handleStdout(chunk));
     // Timeout: if no init message within 10s, kill and report error
@@ -147,6 +149,8 @@ class ClaudeRuntime {
       }
     });
     this.proc.on('exit', (code) => {
+      // Ignore exit from a stale process (after interrupt+respawn).
+      if (this.proc && this.proc.pid !== this._spawnPid) return;
       const wasBusy = this.busy;
       const stderrTail = this._stderrBuf || '';
       this.busy = false;
@@ -252,6 +256,7 @@ class ClaudeRuntime {
     }
     this.busy = true;
     this.turnText = '';
+    this.toolNames.clear();
     const msg = {
       type: 'user',
       message: {

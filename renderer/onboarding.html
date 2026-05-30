@@ -261,6 +261,18 @@ prevBtn.addEventListener('click', () => {
 skipBtn.addEventListener('click', () => {
   window.robot.onboardingDone();
 });
+
+// Keyboard navigation
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'Enter') {
+    if (current < steps.length - 1) { current++; update(); }
+    else window.robot.onboardingDone();
+  } else if (e.key === 'ArrowLeft' || e.key === 'Backspace') {
+    if (current > 0) { current--; update(); }
+  } else if (e.key === 'Escape') {
+    window.robot.onboardingDone();
+  }
+});
 </script>
 </body>
 </html>

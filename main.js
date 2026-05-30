@@ -1,4 +1,4 @@
-const { app, globalShortcut, screen, nativeImage } = require('electron');
+const { app, globalShortcut, screen, nativeImage, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -160,6 +160,7 @@ if (!_hasLock) {
 app.whenReady().then(() => {
   initAgents(store, () => getChatWindow());
   registerIPC();
+  ipcMain.on('open-onboarding', () => openOnboarding());
 
   // Apply auto-start setting
   const autoStart = store.get('autoStart', false);
@@ -205,7 +206,8 @@ app.whenReady().then(() => {
   _trayCallbacks = trayCallbacks;
   setTrayCallbacks(trayCallbacks);
 
-  createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow);
+  const savedPos = store.get('robotPosition', null);
+  createRobotWindow(isFirstLaunch, showBubble, smoothMoveWindow, savedPos);
   startPhysicsTimers();
   const rw = getRobotWindow();
   rw.webContents.once('did-finish-load', () => {
